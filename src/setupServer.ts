@@ -1,4 +1,4 @@
-import { CustomError, IErrorResponse } from './shared/globals/helpers/error-handler';
+import { CustomError, IErrorResponse } from '@global/helpers/error-handler';
 import { Application, json, urlencoded, Response, Request, NextFunction } from "express";
 import http from "http";
 import cors from "cors";
@@ -11,10 +11,9 @@ import { Server } from "socket.io";
 import { createClient } from "redis";
 import { createAdapter } from "@socket.io/redis-adapter";
 import 'express-async-errors';
-import { config } from "./config";
-import applicationRoutes from "./routes";
+import { config } from "@root/config";
+import applicationRoutes from "@root/routes";
 import Logger from "bunyan";
-import { error } from 'console';
 
 const SERVER_PORT = 5000;
 const log: Logger = config.createLogger("setupServer");
@@ -44,13 +43,10 @@ export class ChattyServer {
                 secure: config.NODE_ENV !== "development"
             })
         );
-        
-        /* -------- Hpp --------  */
-        app.use(hpp)
 
         /* -------- Helmet --------  */
-        app.use(helmet)
-        
+        app.use(helmet({ contentSecurityPolicy: false }));
+
         /* -------- Cors --------  */
         app.use(cors({
             origin: config.CLIENT_URL,
@@ -59,14 +55,17 @@ export class ChattyServer {
             methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'],
         }));
     }
-    
+
     private standardMiddleware(app: Application): void {
         /* -------- Compression --------  */
         app.use(compression());
-        
+
         /* -------- Parsing --------  */
         app.use(json({ limit: "50mb" }));
         app.use(urlencoded({ extended: true, limit: "50mb" }));
+
+        /* -------- Hpp --------  */
+        // app.use(hpp);
     }
 
     private routesMiddleware(app: Application): void {
