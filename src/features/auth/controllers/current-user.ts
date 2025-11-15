@@ -14,7 +14,7 @@ class CurrentUser {
 
     const cachedUser: IUserDocument = await userCache.getUserFromCache(`${req.currentUser!.userId}`) as IUserDocument;
     const existingUser: IUserDocument = cachedUser ? cachedUser : await userService.getUserById(`${req.currentUser!.userId}`);
-    if(Object.keys(existingUser).length) {
+    if(existingUser) {
       isUser = true;
       token = req.session?.token;
       user = existingUser;

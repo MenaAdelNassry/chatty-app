@@ -14,7 +14,7 @@ export interface AuthPayload {
   userId: string;
   uId: string;
   email: string;
-  name: string;
+  username: string;
   avatarColor: string;
   iat?: number;
 }

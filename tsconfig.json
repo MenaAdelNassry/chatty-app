@@ -33,6 +33,14 @@
         "@root/*": ["src/*"]
       }
     },
-    "exclude": ["test.ts"]
+    "include": [
+      "src/**/*"
+    ],
+    "exclude": [
+      "test.ts",
+      "jest.config.ts",
+      "coverage",
+      "node_modules",
+    ]
 }
 

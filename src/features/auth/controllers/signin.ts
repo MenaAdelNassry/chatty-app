@@ -1,3 +1,4 @@
+import { IEmailJob } from './../../user/interfaces/user.interface';
 import HTTP_STATUS from 'http-status-codes';
 import { Request, Response } from "express";
 import JWT from "jsonwebtoken";
@@ -8,6 +9,13 @@ import { loginSchema } from '@auth/schemes/signin';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { userService } from '@service/db/user.service';
+import { mailTransport } from '@service/emails/mail.transport';
+import { emailQueue } from '@service/queues/email.queue';
+import { forgotPasswordTemplate } from '@service/emails/templates/forgot-password/forgot-password-template';
+import { IResetPasswordParams } from './../../user/interfaces/user.interface';
+import { resetPasswordTemplate } from '@service/emails/templates/reset-password/reset-password-template';
+import moment from "moment";
+import publicIP from "ip";
 
 class Signin {
   public read = async (req: Request, res: Response) => {
