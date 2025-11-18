@@ -14,6 +14,7 @@ import 'express-async-errors';
 import { config } from "@root/config";
 import applicationRoutes from "@root/routes";
 import Logger from "bunyan";
+import { SocketIOPostHandler } from '@socket/post';
 
 const SERVER_PORT = 5000;
 const log: Logger = config.createLogger("setupServer");
@@ -119,5 +120,8 @@ export class ChattyServer {
         });
     }
 
-    private socketIOConnections(io: Server): void {}
+    private socketIOConnections(io: Server): void {
+      const postSocketHandler: SocketIOPostHandler = new SocketIOPostHandler(io);
+      postSocketHandler.listen();
+    }
 }
