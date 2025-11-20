@@ -1,4 +1,5 @@
-import Queue, { Job } from "bull";
+import { ICommentJob } from '@comment/interfaces/comment.interface';
+import Queue from "bull";
 import Logger from "bunyan";
 import { createBullBoard } from '@bull-board/api';
 import { BullAdapter } from '@bull-board/api/bullAdapter';
@@ -16,7 +17,8 @@ type IBaseJobData =
   | IAuthJob
   | IEmailJob
   | IPostJobData
-  | IReactionJob;
+  | IReactionJob
+  | ICommentJob;
 
 export abstract class BaseQueue {
   queue: Queue.Queue;
