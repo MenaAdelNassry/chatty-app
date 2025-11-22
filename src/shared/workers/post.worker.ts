@@ -9,7 +9,7 @@ class PostWorker {
   async savePostToDB(job: Job, done: DoneCallback): Promise<void> {
     try {
       const { key, value } = job.data;
-      postService.addPostToDB(key, value);
+      await postService.addPostToDB(key, value);
       job.progress(100);
       done(null, job.data);
     } catch (err) {
@@ -21,7 +21,7 @@ class PostWorker {
   async deletePostFromDB(job: Job, done: DoneCallback): Promise<void> {
     try {
       const { keyOne, keyTwo } = job.data;
-      postService.deletePost(keyOne, keyTwo);
+      await postService.deletePost(keyOne, keyTwo);
       job.progress(100);
       done(null, job.data);
     } catch (err) {
@@ -33,7 +33,7 @@ class PostWorker {
   async updatePostInDB(job: Job, done: DoneCallback): Promise<void> {
     try {
       const { key, value } = job.data;
-      postService.editPost(key, value);
+      await postService.editPost(key, value);
       job.progress(100);
       done(null, job.data);
     } catch (err) {

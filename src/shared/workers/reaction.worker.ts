@@ -9,7 +9,7 @@ class ReactionWorker {
   async addReactionToDB(job: Job, done: DoneCallback): Promise<void> {
     try {
       const { data } = job;
-      reactionService.addReactionDataToDB(data);
+      await reactionService.addReactionDataToDB(data);
       job.progress(100);
       done(null, job.data);
     } catch (err) {
@@ -21,7 +21,7 @@ class ReactionWorker {
   async removeReactionFromDB(job: Job, done: DoneCallback): Promise<void> {
     try {
       const { data } = job;
-      reactionService.removeReactionDataFromDB(data);
+      await reactionService.removeReactionDataFromDB(data);
       job.progress(100);
       done(null, job.data);
     } catch (err) {
