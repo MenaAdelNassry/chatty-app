@@ -1,10 +1,16 @@
 import { IFollowerData } from '@follower/interfaces/follower.interface';
 import { FollowerModel } from '@follower/models/follower.model';
+import { INotificationDocument, INotificationTemplate } from '@notification/interfaces/notification.interface';
+import { NotificationModel } from '@notification/models/notification.model';
+import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
+import { emailQueue } from '@service/queues/email.queue';
 import { UserCache } from '@service/redis/user.cache';
+import { socketIONotificationObject } from '@socket/notification';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserModel } from '@user/models/user.schema';
 import { ObjectId } from 'mongodb';
 import mongoose from 'mongoose';
+import { userService } from './user.service';
 
 const userCache: UserCache = new UserCache();
 
@@ -36,10 +42,40 @@ class FollowerService {
     await UserModel.updateOne({ _id: userId }, { $inc: { followingCount: 1 } });
 
     let followeeUserDocument: IUserDocument | null = await userCache.getUserFromCache(followeeId);
-    followeeUserDocument = followeeUserDocument ? followeeUserDocument : await UserModel.findById(followeeId);
+    followeeUserDocument = followeeUserDocument ? followeeUserDocument : await userService.getUserById(followeeId);
 
-    if (followeeUserDocument) {
-      // send notification logic here...
+    if (followeeUserDocument?.notifications.follows && userId !== followeeId) {
+      const notificationModel: INotificationDocument = new NotificationModel();
+      const notifications = await notificationModel.insertNotification({
+        userFrom: userId,
+        userTo: followeeId,
+        message: `${username} is now following you.`,
+        notificationType: "follows",
+        entityId: new mongoose.Types.ObjectId(userId),
+        createdItemId: new mongoose.Types.ObjectId(following._id),
+        createdAt: new Date(),
+        comment: '',
+        post: '',
+        imgId: '',
+        imgVersion: '',
+        gifUrl: '',
+        reaction: ''
+      });
+
+      socketIONotificationObject.emit("insert notification", notifications, { userTo: followeeId });
+
+      const templateParams: INotificationTemplate = {
+        username: followeeUserDocument.username!,
+        message: `${username} is now following you.`,
+        header: 'Follower Notification'
+      }
+
+      const template: string = notificationTemplate.notificationTemplate(templateParams);
+      emailQueue.addEmailJob("followersEmail", {
+        receiverEmail: followeeUserDocument.email!,
+        template,
+        subject: `${username} is now following you.`
+      });
     }
   }
 

@@ -1,0 +1,50 @@
+import { Request, Response } from 'express';
+import { Server } from 'socket.io';
+import * as notificationServer from '@socket/notification';
+import { authUserPayload } from '@root/mocks/auth.mock';
+import { mockNotification, notificationMockRequest, notificationMockResponse } from '@root/mocks/notifications.mock';
+import { notificationQueue } from '@service/queues/notification.queue';
+import { update } from '@notification/controllers/update-notification';
+import HTTP_STATUS from 'http-status-codes';
+
+jest.mock('@service/queues/notification.queue');
+
+Object.defineProperties(notificationServer, {
+  socketIONotificationObject: {
+    value: new Server(),
+    writable: true
+  }
+});
+
+describe('Update Notification Controller', () => {
+  beforeEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  afterEach(() => {
+    jest.clearAllMocks();
+    jest.clearAllTimers();
+  });
+
+  it('should send correct json response and trigger socket/queue', async () => {
+    const req: Request = notificationMockRequest(
+      {},
+      authUserPayload,
+      { notificationId: `${mockNotification._id}` }
+    ) as Request;
+    const res: Response = notificationMockResponse();
+
+    const socketSpy = jest.spyOn(notificationServer.socketIONotificationObject, 'emit');
+    const queueSpy = jest.spyOn(notificationQueue, 'addNotificationJob');
+
+    await update.notification(req, res);
+
+    expect(socketSpy).toHaveBeenCalledWith('update notification', `${mockNotification._id}`);
+    expect(queueSpy).toHaveBeenCalledWith('updateNotification', { key: `${mockNotification._id}` });
+
+    expect(res.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Notification marked as read'
+    });
+  });
+});
