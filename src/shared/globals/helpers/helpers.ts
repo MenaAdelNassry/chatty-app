@@ -28,4 +28,8 @@ export class Helpers {
       return prop;
     }
   }
+
+  static isBase64(value: string): boolean {
+    return value.startsWith("data:image");
+  }
 }

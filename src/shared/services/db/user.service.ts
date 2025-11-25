@@ -1,6 +1,6 @@
-import { IUserDocument } from "@user/interfaces/user.interface";
-import { UserModel } from "@user/models/user.schema";
-import mongoose from "mongoose";
+import { IUserDocument } from '@user/interfaces/user.interface';
+import { UserModel } from '@user/models/user.schema';
+import mongoose from 'mongoose';
 
 class UserService {
   public async addUserToDB(data: IUserDocument): Promise<void> {
@@ -10,7 +10,7 @@ class UserService {
   public async getUserByAuthId(authId: string): Promise<IUserDocument> {
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { authId: new mongoose.Types.ObjectId(authId) } },
-      { $lookup: { from: "Auth", localField: 'authId', foreignField: '_id', as: 'authId' } },
+      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
       { $project: this.aggregateProject() }
     ]);
@@ -21,12 +21,16 @@ class UserService {
   public async getUserById(userId: string): Promise<IUserDocument> {
     const users: IUserDocument[] = await UserModel.aggregate([
       { $match: { _id: new mongoose.Types.ObjectId(userId) } },
-      { $lookup: { from: "Auth", localField: "authId", foreignField: "_id", as: "authId" } },
+      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
       { $project: this.aggregateProject() }
-    ])
+    ]);
 
     return users[0];
+  }
+
+  public async removeBackgroundImage(userId: string, imageId: string): Promise<void> {
+    await UserModel.updateOne({ _id: userId, bgImageId: imageId }, { $set: { bgImageId: '', bgImageVersion: '' } });
   }
 
   private aggregateProject() {

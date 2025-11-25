@@ -8,6 +8,7 @@ import { BadRequestError, joiRequestValidationError } from '@global/helpers/erro
 import { IPostDocument } from '@post/interfaces/post.interface';
 import { UploadApiResponse } from 'cloudinary';
 import { uploads } from '@global/helpers/cloudinary-upload';
+import { imageQueue } from '@service/queues/image.queue';
 
 const postCache: PostCache = new PostCache();
 
@@ -37,6 +38,7 @@ class Update {
     const { imgId, imgVersion, image } = req.body;
     let newImgId = imgId;
     let newImgVersion = imgVersion;
+    let isNewImage = false;
 
     // ----------------- Determine whether the change requires a new image or just text -----------------
     if(image && (!imgId || !imgVersion)) {
@@ -47,6 +49,7 @@ class Update {
       }
       newImgId = result.public_id;
       newImgVersion = result.version.toString();
+      isNewImage = true;
     }
 
     // ----------------- Helper Function -----------------
@@ -56,6 +59,16 @@ class Update {
       imgVersion: newImgVersion
     };
     await this.updatePostAndNotify(req.params.postId, updatedData);
+
+    // ----------------- Add Job To Queue (add image to db) -----------------
+    if(isNewImage) {
+      imageQueue.addImageJob("addImageToDB", {
+        key: req.currentUser!.userId,
+        publicId: newImgId,
+        version: newImgVersion,
+        type: "post"
+      });
+    }
 
     res.status(HTTP_STATUS.OK).json({ message: 'Post with image updated successfully' });
   }
@@ -81,9 +94,6 @@ class Update {
 
     // ----------------- Add Job To Queue(for DB)  -----------------
     postQueue.addPostJob("updatePostInDB", { key: postId, value: updatedPostFromCache });
-
-    // TODO: if we have new image we will add job to image queue to add it to DB
-    // later on, we will add image collection and its queue
 
     // TODO: Add background job to delete oldImgId from Cloudinary to save space.
   }
