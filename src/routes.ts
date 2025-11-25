@@ -8,6 +8,7 @@ import { reactionRoutes } from "@reaction/routes/reactionRoutes";
 import { commentRoutes } from "@comment/routes/commentsRoutes";
 import { followerRoutes } from "@follower/routes/followerRoutes";
 import { notificationRoutes } from "@notification/routes/notificationsRoutes";
+import { imageRoutes } from "@image/routes/imageRoutes";
 
 const BASE_URL = "/api/v1";
 
@@ -23,6 +24,7 @@ export default (app: Application) => {
       app.use(BASE_URL, authMiddleware.verifyUser, commentRoutes.routes());
       app.use(BASE_URL, authMiddleware.verifyUser, followerRoutes.routes());
       app.use(BASE_URL, authMiddleware.verifyUser, notificationRoutes.routes());
+      app.use(BASE_URL, authMiddleware.verifyUser, imageRoutes.routes());
     };
     routes();
 }

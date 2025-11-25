@@ -1,15 +1,16 @@
-import { BaseCache } from "@service/redis/base.cache";
-import { IUserDocument } from "@user/interfaces/user.interface";
-import Logger from "bunyan";
-import { config } from "@root/config";
-import { ServerError } from "@global/helpers/error-handler";
-import { Helpers } from "@global/helpers/helpers";
+import { BaseCache } from '@service/redis/base.cache';
+import { INotificationSettings, ISocialLinks, IUserDocument } from '@user/interfaces/user.interface';
+import Logger from 'bunyan';
+import { config } from '@root/config';
+import { ServerError } from '@global/helpers/error-handler';
+import { Helpers } from '@global/helpers/helpers';
 
-const log: Logger = config.createLogger("userCache");
+const log: Logger = config.createLogger('userCache');
+type UserItem = string | ISocialLinks | INotificationSettings;
 
-export class UserCache  extends BaseCache {
+export class UserCache extends BaseCache {
   constructor() {
-    super("userCache");
+    super('userCache');
   }
 
   public async saveUserToCache(key: string, uId: string, createdUser: IUserDocument): Promise<void> {
@@ -35,34 +36,34 @@ export class UserCache  extends BaseCache {
       quote: `${createdUser.quote}`,
       school: `${createdUser.school}`,
       bgImageVersion: `${createdUser.bgImageVersion}`,
-      bgImageId: `${createdUser.bgImageId}`,
+      bgImageId: `${createdUser.bgImageId}`
     };
 
     try {
-      if(!this.client.isOpen) {
+      if (!this.client.isOpen) {
         await this.client.connect();
       }
 
       await this.client.ZADD('user', { score: parseInt(uId, 10), value: `${key}` });
       const multi = this.client.multi();
 
-      for(const [field, value] of Object.entries(dataToSave)) {
+      for (const [field, value] of Object.entries(dataToSave)) {
         multi.HSET(`users:${key}`, field, value);
       }
       await multi.exec();
-    } catch(err) {
+    } catch (err) {
       log.error(err);
-      throw new ServerError("Server error. Try again.");
+      throw new ServerError('Server error. Try again.');
     }
   }
 
   public async getUserFromCache(userId: string): Promise<IUserDocument | null> {
     try {
-      if(!this.client.isOpen) {
+      if (!this.client.isOpen) {
         await this.client.connect();
       }
 
-      const response: IUserDocument = await this.client.HGETALL(`users:${userId}`) as unknown as IUserDocument;
+      const response: IUserDocument = (await this.client.HGETALL(`users:${userId}`)) as unknown as IUserDocument;
       response.createdAt = new Date(Helpers.parseJson(`${response.createdAt}`));
       response.postsCount = Helpers.parseJson(`${response.postsCount}`);
       response.blocked = Helpers.parseJson(`${response.blocked}`);
@@ -75,7 +76,35 @@ export class UserCache  extends BaseCache {
       return response;
     } catch (err) {
       log.error(err);
-      throw new ServerError("Server error. Try again.");
+      throw new ServerError('Server error. Try again.');
+    }
+  }
+
+  public async updateUserItemsInCache(userId: string, data: { [key: string]: UserItem }): Promise<IUserDocument | null> {
+    try {
+      if (!this.client.isOpen) {
+        await this.client.connect();
+      }
+
+      const key = `users:${userId}`;
+      const dataToSave: { [key: string]: string } = {};
+      const multi = this.client.multi();
+
+      for (const [itemKey, itemValue] of Object.entries(data)) {
+        multi.HSET(key, itemKey, JSON.stringify(itemValue));
+      }
+
+      await multi.exec();
+
+      const response: IUserDocument = (await this.getUserFromCache(userId)) as IUserDocument;
+      if (!response._id || !response.username) {
+        return null;
+      }
+
+      return response;
+    } catch (err) {
+      log.error(err);
+      throw new ServerError('Server error. Try again.');
     }
   }
 }

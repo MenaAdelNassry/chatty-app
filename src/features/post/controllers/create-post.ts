@@ -9,6 +9,7 @@ import { socketIOPostObject } from "@socket/post";
 import { postQueue } from "@service/queues/post.queue";
 import { UploadApiResponse } from "cloudinary";
 import { uploads } from "@global/helpers/cloudinary-upload";
+import { imageQueue } from "@service/queues/image.queue";
 
 const postCache: PostCache = new PostCache();
 
@@ -119,7 +120,12 @@ class Create {
     });
 
     // ----------------- Add Job To Queue (add image to db) -----------------
-    //         ***************** Not Implemented Yet ***************
+    imageQueue.addImageJob("addImageToDB", {
+      key: req.currentUser!.userId,
+      publicId: result.public_id,
+      version: result.version.toString(),
+      type: "post"
+    });
 
     // ----------------- Finally, The Response  -----------------
     res.status(HTTP_STATUS.CREATED).json({ message: "Post created with image successfully" });

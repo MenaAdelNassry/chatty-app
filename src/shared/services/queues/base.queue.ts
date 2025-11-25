@@ -1,3 +1,4 @@
+import { IFileImageJobData } from '@image/interfaces/image.interface';
 import { ICommentJob } from '@comment/interfaces/comment.interface';
 import Queue from "bull";
 import Logger from "bunyan";
@@ -23,7 +24,8 @@ type IBaseJobData =
   | ICommentJob
   | IFollowerJobData
   | IBlockedUserJobData
-  | INotificationJobData;
+  | INotificationJobData
+  | IFileImageJobData;
 
 export abstract class BaseQueue {
   queue: Queue.Queue;
