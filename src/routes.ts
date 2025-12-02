@@ -10,6 +10,7 @@ import { followerRoutes } from "@follower/routes/followerRoutes";
 import { notificationRoutes } from "@notification/routes/notificationsRoutes";
 import { imageRoutes } from "@image/routes/imageRoutes";
 import { chatRoutes } from "@chat/routes/chatRoutes";
+import { userRoutes } from "@user/routes/userRoutes";
 
 const BASE_URL = "/api/v1";
 
@@ -27,6 +28,7 @@ export default (app: Application) => {
       app.use(BASE_URL, authMiddleware.verifyUser, notificationRoutes.routes());
       app.use(BASE_URL, authMiddleware.verifyUser, imageRoutes.routes());
       app.use(BASE_URL, authMiddleware.verifyUser, chatRoutes.routes());
+      app.use(BASE_URL, authMiddleware.verifyUser, userRoutes.routes());
     };
     routes();
 }

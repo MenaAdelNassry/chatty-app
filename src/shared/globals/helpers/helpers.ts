@@ -32,4 +32,19 @@ export class Helpers {
   static isBase64(value: string): boolean {
     return value.startsWith("data:image");
   }
+
+  static shuffle<T>(array: T[]): T[] {
+    const shuffled = [...array];
+
+    for(let i = shuffled.length-1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [shuffled[j], shuffled[i]] = [shuffled[i], shuffled[j]];
+    }
+
+    return shuffled;
+  }
+
+  static escapeRegex(text: string): string {
+    return text.replace(/[-[\]{}()*+?.,\\^$|#\s]/g, '\\$&');
+  }
 }

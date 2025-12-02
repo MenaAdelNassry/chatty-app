@@ -50,7 +50,7 @@ class FollowerService {
         userFrom: userId,
         userTo: followeeId,
         message: `${username} is now following you.`,
-        notificationType: "follows",
+        notificationType: 'follows',
         entityId: new mongoose.Types.ObjectId(userId),
         createdItemId: new mongoose.Types.ObjectId(following._id),
         createdAt: new Date(),
@@ -62,16 +62,16 @@ class FollowerService {
         reaction: ''
       });
 
-      socketIONotificationObject.emit("insert notification", notifications, { userTo: followeeId });
+      socketIONotificationObject.emit('insert notification', notifications, { userTo: followeeId });
 
       const templateParams: INotificationTemplate = {
         username: followeeUserDocument.username!,
         message: `${username} is now following you.`,
         header: 'Follower Notification'
-      }
+      };
 
       const template: string = notificationTemplate.notificationTemplate(templateParams);
-      emailQueue.addEmailJob("followersEmail", {
+      emailQueue.addEmailJob('followersEmail', {
         receiverEmail: followeeUserDocument.email!,
         template,
         subject: `${username} is now following you.`
@@ -114,6 +114,12 @@ class FollowerService {
 
   public async getUserFollowers(userId: ObjectId): Promise<IFollowerData[]> {
     return await this.getFollowersData(userId, 'followers');
+  }
+
+  public async getFolloweeIds(userId: string): Promise<string[]> {
+    const followings = await FollowerModel.find({ followerId: userId }).select('followeeId');
+
+    return followings.map((f) => f.followeeId.toString());
   }
 
   private async getFollowersData(userId: ObjectId, type: 'followers' | 'following'): Promise<IFollowerData[]> {

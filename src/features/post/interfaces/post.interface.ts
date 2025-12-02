@@ -26,6 +26,7 @@ export interface IGetPostsQuery {
   username?: string;
   imgId?: string;
   gifUrl?: string;
+  userId?: string;
 }
 
 export interface ISavePostToCache {
