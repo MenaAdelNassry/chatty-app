@@ -88,13 +88,21 @@ export class PostCache extends BaseCache {
     }
   }
 
-  public async getUserPostsFromCache(key: string, uId: number): Promise<IPostDocument[]> {
+  public async getUserPostsFromCache(key: string, uId: number, skip: number, limit: number): Promise<IPostDocument[]> {
     try {
       if (!this.client.isOpen) {
         await this.client.connect();
       }
 
-      const userPostsIDs: string[] = await this.client.ZRANGE(key, uId, uId, { REV: true, BY: 'SCORE' });
+      const userPostsIDs: string[] = await this.client.ZRANGE(key, String(uId), String(uId), {
+        REV: true,
+        BY: 'SCORE',
+        LIMIT: {
+          offset: skip,
+          count: limit
+        }
+      });
+
       const multi: ReturnType<typeof this.client.multi> = this.client.multi();
       for (const postId of userPostsIDs) {
         multi.HGETALL(`posts:${postId}`);
@@ -170,7 +178,7 @@ export class PostCache extends BaseCache {
     };
 
     try {
-      if(!this.client.isOpen) {
+      if (!this.client.isOpen) {
         await this.client.connect();
       }
 
@@ -195,8 +203,7 @@ export class PostCache extends BaseCache {
   private async fetchPosts(key: string, start: number, end: number): Promise<IPostDocument[]> {
     if (!this.client.isOpen) await this.client.connect();
 
-    const postIds: string[] = await this.client.ZRANGE(key, start, end);
-    const latestPostIds = postIds.reverse();
+    const postIds: string[] = await this.client.ZRANGE(key, start, end, { REV: true });
     const multi = this.client.multi();
 
     for (const postId of postIds) {
