@@ -33,6 +33,7 @@ class Add {
     const username = req.currentUser!.username;
     const avatarColor = req.currentUser!.avatarColor;
     const userId = req.currentUser!.userId;
+    console.log(userId)
 
     // ----------------- Object Construction (Inlined) -----------------
     const commentData: ICommentDocument = {

@@ -49,7 +49,7 @@ class CommentService {
 
     if (response[2]?.notifications.comments && userFrom != userTo) {
       const notificationModel: INotificationDocument = new NotificationModel();
-      const notifications = await notificationModel.insertNotification({
+      const notifications: any = await notificationModel.insertNotification({
         userFrom,
         userTo,
         message: `${username} commented on your post`,
@@ -64,6 +64,7 @@ class CommentService {
         gifUrl: response[1].gifUrl!,
         reaction: ''
       });
+      const createdNotification = notifications[0];
 
       // -------------------------------------------------------------------------
       // TODO: 🚀 PERFORMANCE & PRIVACY UPGRADE (Targeted Sockets)
@@ -79,7 +80,7 @@ class CommentService {
       // 2. On Notification: Send message ONLY to that specific room.
       //    `io.to(userTo).emit('insert notification', data)`
       // -------------------------------------------------------------------------
-      socketIONotificationObject.emit('insert notification', notifications, { userTo });
+      socketIONotificationObject.emit('insert notification', createdNotification, { userTo });
 
       const templateParams: INotificationTemplate = {
         username: response[2].username!,

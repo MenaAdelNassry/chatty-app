@@ -45,7 +45,7 @@ export class ChattyServer {
             cookieSession({
                 name: 'session',
                 keys: [config.SECRET_KEY_ONE!, config.SECRET_KEY_TWO!], // Exaclmation mark means you tell the compiler it will not be undefined
-                maxAge: 1000 * 60 * 60 * 24 * 7, // 7 Days
+                // maxAge: 1000 * 60 * 60 * 24 * 7, // 7 Days
                 secure: config.NODE_ENV !== "development"
             })
         );

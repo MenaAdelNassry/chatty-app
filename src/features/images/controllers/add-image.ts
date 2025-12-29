@@ -1,4 +1,4 @@
-import { uploads } from '@global/helpers/cloudinary-upload';
+import { uploadToCloudinary } from '@global/helpers/cloudinary-upload';
 import { BadRequestError, joiRequestValidationError } from '@global/helpers/error-handler';
 import { addImageSchema } from '@image/schemes/images';
 import { UploadApiResponse } from 'cloudinary';
@@ -12,7 +12,6 @@ import HTTP_STATUS from 'http-status-codes';
 import { userService } from '@service/db/user.service';
 import { IBgUploadResponse } from '@image/interfaces/image.interface';
 import { Helpers } from '@global/helpers/helpers';
-import { imageService } from '@service/db/image.service';
 
 const userCache: UserCache = new UserCache();
 
@@ -51,10 +50,11 @@ class Add {
     // consistent profile image ID (overwriting the old one).
     // -------------------------------------------------------------------------
     const { image } = value;
-    const result: UploadApiResponse = (await uploads(image, req.currentUser!.userId, true, true)) as UploadApiResponse;
-    if (!result?.public_id) {
-      throw new BadRequestError('File upload: Error corrupted. Try again.');
-    }
+    const result: UploadApiResponse = await uploadToCloudinary(image, {
+      public_id: req.currentUser!.userId,
+      invalidate: true,
+      overwrite: true
+    });
 
     // -------------------------------------------------------------------------
     // 3. URL CONSTRUCTION
@@ -168,10 +168,7 @@ class Add {
     let publicId = '';
 
     if (isBase64) {
-      const result: UploadApiResponse = (await uploads(image)) as UploadApiResponse;
-      if (!result?.public_id) {
-        throw new BadRequestError('File upload: Error corrupted. Try again.');
-      }
+      const result: UploadApiResponse = await uploadToCloudinary(image);
 
       version = result.version.toString();
       publicId = result.public_id;

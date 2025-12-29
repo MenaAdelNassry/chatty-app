@@ -32,7 +32,9 @@ export class PostCache extends BaseCache {
       reactions: `${JSON.stringify(createdPost.reactions)}`,
       imgVersion: `${createdPost.imgVersion}`,
       imgId: `${createdPost.imgId}`,
-      createdAt: `${createdPost.createdAt}`
+      videoVersion: `${createdPost.videoVersion}`,
+      videoId: `${createdPost.videoId}`,
+      createdAt: `${createdPost.createdAt}`,
     };
 
     try {
@@ -49,6 +51,20 @@ export class PostCache extends BaseCache {
       const count: number = parseInt(postCount[0] || '0', 10) + 1;
       multi.HSET(`users:${currentUserId}`, 'postsCount', count);
       await multi.exec();
+    } catch (err) {
+      log.error(err);
+      throw new ServerError('Server error. Try again.');
+    }
+  }
+
+  public async getPostsWithVideosFromCache(key: string, start: number, end: number): Promise<IPostDocument[]> {
+    try {
+      if (!this.client.isOpen) {
+        await this.client.connect();
+      }
+
+      const posts: IPostDocument[] = await this.fetchPosts(key, start, end);
+      return posts.filter((post) => post.videoId && post.videoVersion);
     } catch (err) {
       log.error(err);
       throw new ServerError('Server error. Try again.');
@@ -163,7 +179,7 @@ export class PostCache extends BaseCache {
   }
 
   public async updatePostInCache(postId: string, updatedPost: IPostDocument): Promise<IPostDocument> {
-    const { post, bgColor, feelings, privacy, gifUrl, imgVersion, imgId, profilePicture } = updatedPost;
+    const { post, bgColor, feelings, privacy, gifUrl, imgVersion, imgId, profilePicture, videoId, videoVersion } = updatedPost;
     const multi: ReturnType<typeof this.client.multi> = this.client.multi();
 
     const dataToSave = {
@@ -174,6 +190,8 @@ export class PostCache extends BaseCache {
       gifUrl: `${gifUrl}`,
       imgVersion: `${imgVersion}`,
       imgId: `${imgId}`,
+      videoId: `${videoId}`,
+      videoVersion: `${videoVersion}`,
       profilePicture: `${profilePicture}`
     };
 

@@ -3,11 +3,11 @@ import { postQueue } from "@service/queues/post.queue";
 import { PostCache } from "@service/redis/post.cache";
 import { socketIOPostObject } from "@socket/post";
 import { Request, Response } from "express";
-import { postSchema, postWithImageSchema } from '@post/schemes/post.schemes';
+import { postSchema, postWithImageSchema, postWithVideoSchema } from '@post/schemes/post.schemes';
 import { BadRequestError, joiRequestValidationError } from '@global/helpers/error-handler';
 import { IPostDocument } from '@post/interfaces/post.interface';
 import { UploadApiResponse } from 'cloudinary';
-import { uploads } from '@global/helpers/cloudinary-upload';
+import { uploadToCloudinary } from '@global/helpers/cloudinary-upload';
 import { imageQueue } from '@service/queues/image.queue';
 
 const postCache: PostCache = new PostCache();
@@ -35,7 +35,7 @@ class Update {
     }
 
     // ----------------- Image data preparation -----------------
-    const { imgId, imgVersion, image } = req.body;
+    const { imgId, imgVersion, image } = value;
     let newImgId = imgId;
     let newImgVersion = imgVersion;
     let isNewImage = false;
@@ -43,10 +43,7 @@ class Update {
     // ----------------- Determine whether the change requires a new image or just text -----------------
     if(image && (!imgId || !imgVersion)) {
       // this means the user add new image for this post (not exist in our cloudinary)
-      const result: UploadApiResponse = await uploads(image) as UploadApiResponse;
-      if (!result.public_id) {
-        throw new BadRequestError(result.message);
-      }
+      const result: UploadApiResponse = await uploadToCloudinary(image);
       newImgId = result.public_id;
       newImgVersion = result.version.toString();
       isNewImage = true;
@@ -73,6 +70,38 @@ class Update {
     res.status(HTTP_STATUS.OK).json({ message: 'Post with image updated successfully' });
   }
 
+  public postWithVideo = async (req: Request, res: Response): Promise<void> => {
+    // ----------------- Validation -----------------
+    const { value, error } = postWithVideoSchema.validate(req.body);
+    if(error?.details) {
+      throw new joiRequestValidationError(error?.details[0].message);
+    }
+
+    // ----------------- Video data preparation -----------------
+    const { videoId, videoVersion, video } = value;
+    let newVideoId = videoId;
+    let newVideoVersion = videoVersion;
+
+    // ----------------- Determine whether the change requires a new image or just text -----------------
+    if(video && (!videoVersion || !videoId)) {
+      // This means user add a new video
+      const result: UploadApiResponse = await uploadToCloudinary(video, { resource_type: 'video' });
+      newVideoId = result.public_id;
+      newVideoVersion = result.version;
+    }
+
+    // ----------------- Helper Function -----------------
+    const updatedData = {
+      ...value,
+      videoId: newVideoId,
+      videoVersion: newVideoVersion
+    };
+    await this.updatePostAndNotify(req.params.postId, updatedData);
+
+    // ----------------- Finally, Response -----------------
+    res.status(HTTP_STATUS.OK).json({ message: 'Post with video updated successfully' });
+  }
+
   private updatePostAndNotify = async (postId: string, data: IPostDocument): Promise<void> => {
     // ----------------- Final Object Prepration  -----------------
     const updatedPost: IPostDocument = {
@@ -84,6 +113,8 @@ class Update {
       profilePicture: data.profilePicture,
       imgId: data.imgId ? data.imgId : '',
       imgVersion: data.imgVersion ? data.imgVersion : '',
+      videoId: data.videoId ? data.videoId : '',
+      videoVersion: data.videoVersion ? data.videoVersion : '',
     } as IPostDocument;
 
     // ----------------- Cache Update  -----------------

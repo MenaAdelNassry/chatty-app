@@ -1,6 +1,6 @@
 import { IMessageData, IMessageNotification } from '@chat/interfaces/message.interface';
 import { addChatSchema } from '@chat/schemes/chat';
-import { uploads } from '@global/helpers/cloudinary-upload';
+import { uploadToCloudinary } from '@global/helpers/cloudinary-upload';
 import { BadRequestError, joiRequestValidationError } from '@global/helpers/error-handler';
 import { INotificationTemplate } from '@notification/interfaces/notification.interface';
 import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
@@ -55,10 +55,11 @@ class Add {
     const sender: IUserDocument = (await userCache.getUserFromCache(`${req.currentUser!.userId}`)) as IUserDocument;
 
     if (selectedImage) {
-      const result: UploadApiResponse = (await uploads(selectedImage, `${messageObjectId}`, true, true)) as UploadApiResponse;
-      if (!result?.public_id) {
-        throw new BadRequestError(result.message);
-      }
+      const result: UploadApiResponse = await uploadToCloudinary(selectedImage, {
+        public_id: `${messageObjectId}`,
+        invalidate: true,
+        overwrite: true,
+      });
       imageUrl = `https://res.cloudinary.com/dyamr9ym3/image/upload/v${result.version}/${result.public_id}`;
     }
 

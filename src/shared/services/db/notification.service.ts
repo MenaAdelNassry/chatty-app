@@ -18,6 +18,7 @@ class NotificationService {
     // -------------------------------------------------------------------------
     const notifications: INotificationDocument[] = await NotificationModel.aggregate([
       { $match: { userTo: new mongoose.Types.ObjectId(userId) } },
+      { $sort: { createdAt: -1 } },
       { $lookup: { from: 'User', localField: 'userFrom', foreignField: '_id', as: 'userFrom' } },
       { $unwind: '$userFrom' },
       { $lookup: { from: 'Auth', localField: 'userFrom.authId', foreignField: '_id', as: 'authId' } },

@@ -29,6 +29,8 @@
     "@types/jsonwebtoken": "^9.0.10",
     "@types/lodash": "^4.17.20",
     "@types/nodemailer": "^7.0.3",
+    "@types/swagger-jsdoc": "^6.0.4",
+    "@types/swagger-ui-express": "^4.1.8",
     "@typescript-eslint/eslint-plugin": "^8.46.2",
     "@typescript-eslint/parser": "^8.46.2",
     "eslint": "^9.38.0",
@@ -46,6 +48,7 @@
     "@jest/types": "^30.2.0",
     "@sendgrid/mail": "^8.1.6",
     "@socket.io/redis-adapter": "^8.3.0",
+    "axios": "^1.13.2",
     "bcryptjs": "^3.0.2",
     "bull": "^4.16.5",
     "bunyan": "^1.8.15",
@@ -67,8 +70,10 @@
     "moment": "^2.30.1",
     "mongoose": "^8.19.2",
     "nodemailer": "^7.0.10",
-    "redis": "^5.9.0",
+    "redis": "^5.10.0",
     "socket.io": "^4.8.1",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "typescript-transform-paths": "^3.5.5"
   }
 }

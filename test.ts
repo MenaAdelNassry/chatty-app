@@ -1,97 +1,92 @@
-import Joi from "joi"
+// TODO # Concurrency Control – Project Checklist
 
-// Schema construction
-// const base = Joi.string();
-// const withMin = base.min(5);
+// Use this checklist before shipping the project and when reviewing critical features.
 
-// console.log(base);
-// console.log("================================");
-// console.log(withMin);
+// ---
 
+// ## 1. Identify Shared Data
 
-// const userSchema = Joi.object({
-//   username: Joi.string().required(),
-// });
+// * [ ] List all shared mutable data (e.g. counters, balances, inventory, followers, likes).
+// * [ ] Mark which features read/write the same data concurrently.
 
-// const registeredSchema = userSchema.keys({
-//   password: Joi.string().min(5).required()
-// });
+// ---
 
-// const result1 = userSchema.validate({ username: "mena" });
-// const result2 = registeredSchema.validate({ username: "maged" });
+// ## 2. Detect Read–Modify–Write Patterns
 
-// console.log(result1.error ? result1.error.message : result1);
-// console.error(result2.error ? result2.error.message : result2);
+// * [ ] Search for any logic that does: read → modify → write.
+// * [ ] Replace with atomic operations where possible:
 
-// Object Schema
-// const schema = Joi.object({
-//   a: Joi.string().required().allow("")
-// });
-// console.log(schema.validate({ a: "" }));
+//   * Redis: `INCR`, `DECR`, `HINCRBY`
+//   * MongoDB: `$inc`, `$push`, `$addToSet`
+//   * SQL: `UPDATE value = value + 1`
 
+// ---
 
-// Type Schema
-// const schema3 = Joi.string().min(10);
-// schema.validate("abcdefghij");
+// ## 3. Ensure Atomicity
 
+// * [ ] Verify each critical operation is atomic (all-or-nothing).
+// * [ ] Use transactions when multiple updates must succeed together.
+// * [ ] Confirm no partial updates can leave data inconsistent.
 
-// const base = Joi.string().min(3);
-// const specific = Joi.string().required();
-// const merged = base.concat(specific);
+// ---
 
-// console.log(merged.validate(""))
+// ## 4. Apply Proper Concurrency Control
 
+// * [ ] Decide per feature:
 
-// const schema = Joi.string().min(2).max(10);
-// console.log(schema.validate('a').error.details);
-function frozen(target: Function) {
-  Object.freeze(target);
-  Object.freeze(target.prototype);
-}
+//   * Optimistic Concurrency (versioning, conflict detection)
+//   * Pessimistic Concurrency (locks, transactions)
+// * [ ] Justify the choice (performance vs safety).
 
-// @frozen
-class User {
-  private static userType: string = "Generic";
+// ---
 
-  // @required
-  private _email: string;
+// ## 5. Handle Idempotency
 
-  // @required
-  public username: string;
+// * [ ] Ensure repeated requests do not corrupt data.
+// * [ ] Protect against duplicate actions (double-like, double-follow, double-payment).
+// * [ ] Use idempotency keys or unique constraints where needed.
 
-  public addressLine1: string = "";
-  public addressLine2: string = "";
-  public country: string = "";
+// ---
 
-  constructor(username: string, email: string) {
-    this.username = username;
-    this._email = email;
-  }
+// ## 6. Distributed Execution Safety
 
-  // @enumerable(false)
-  get userType() {
-    return User.userType;
-  }
+// * [ ] Assume multiple processes/servers/pods are running.
+// * [ ] Avoid in-memory locks for shared state.
+// * [ ] Use centralized systems (DB, Redis) for coordination.
 
-  get email() {
-    return this._email;
-  }
+// ---
 
-  set email(newEmail: string) {
-    this._email = newEmail;
-  }
+// ## 7. Define Source of Truth
 
-  // @deprecated
-  address(): any {
-    return `${this.addressLine1}\n${this.addressLine2}\n${this.country}`;
-  }
-}
+// * [ ] Clearly define the authoritative data source.
+// * [ ] Treat caches (Redis) as non-authoritative.
+// * [ ] Define recovery strategy if cache is lost or corrupted.
 
-User.addNewProp = "Trying to add new prop value";
+// ---
 
+// ## 8. Validate Failure Scenarios
 
-const p = new User("exampleUser", "example@example.com");
-p.addressLine1 = "1, New Avenue";
-p.addressLine2 = "Bahcelievler, Istanbul";
-console.log(p)
+// * [ ] What happens if the process crashes mid-operation?
+// * [ ] What happens if Redis/DB temporarily fails?
+// * [ ] Ensure retries do not cause duplicate or inconsistent data.
 
+// ---
+
+// ## 9. Test Concurrency Explicitly
+
+// * [ ] Simulate concurrent requests.
+// * [ ] Test race conditions intentionally.
+// * [ ] Verify counters and shared data remain correct under load.
+
+// ---
+
+// ## 10. Final Review
+
+// * [ ] No shared data without protection.
+// * [ ] No reliance on async/await for data safety.
+// * [ ] Concurrency decisions documented and intentional.
+
+// ---
+
+// **Rule of Thumb:**
+// If multiple operations can touch the same data at the same time, concurrency must be handled at the data level — not with async/await.

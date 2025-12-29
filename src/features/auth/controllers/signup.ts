@@ -8,7 +8,7 @@ import { IAuthDocument, ISignUpData } from "@auth/interfaces/auth.interface";
 import { BadRequestError } from "@global/helpers/error-handler";
 import { Helpers } from "@global/helpers/helpers";
 import { UploadApiResponse } from "cloudinary";
-import { uploads } from "@global/helpers/cloudinary-upload";
+import { uploadToCloudinary } from "@global/helpers/cloudinary-upload";
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserCache } from "@service/redis/user.cache";
 import { config } from '@root/config';
@@ -47,10 +47,11 @@ class Signup {
       password,
       uId,
     });
-    const result: UploadApiResponse = await uploads(avatarImage, `${userObjectId}`, true, true) as UploadApiResponse
-    if(!result?.public_id) {
-      throw new BadRequestError("File upload: Error occured. Try again");
-    }
+    const result: UploadApiResponse = await uploadToCloudinary(avatarImage, {
+      public_id: `${userObjectId}`,
+      overwrite: true,
+      invalidate: true,
+    });
 
     // ----------------- Add To Redis Cache  -----------------
     const userDataForCache: IUserDocument = this.userData(authData, userObjectId);

@@ -1,4 +1,3 @@
-import { IEmailJob } from './../../user/interfaces/user.interface';
 import HTTP_STATUS from 'http-status-codes';
 import { Request, Response } from "express";
 import JWT from "jsonwebtoken";
@@ -9,13 +8,6 @@ import { loginSchema } from '@auth/schemes/signin';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { userService } from '@service/db/user.service';
-import { mailTransport } from '@service/emails/mail.transport';
-import { emailQueue } from '@service/queues/email.queue';
-import { forgotPasswordTemplate } from '@service/emails/templates/forgot-password/forgot-password-template';
-import { IResetPasswordParams } from './../../user/interfaces/user.interface';
-import { resetPasswordTemplate } from '@service/emails/templates/reset-password/reset-password-template';
-import moment from "moment";
-import publicIP from "ip";
 
 class Signin {
   public read = async (req: Request, res: Response) => {
@@ -26,7 +18,7 @@ class Signin {
     }
 
     // ----------------- Check If Username Existed -----------------
-    const { username, password } = value;
+    const { username, password, keepLoggedIn } = value;
     const existingAuthUser: IAuthDocument = await authService.getAuthUserByUsername(username);
     if(!existingAuthUser) {
       throw new BadRequestError("Invalid credentials");
@@ -48,9 +40,16 @@ class Signin {
         username: existingAuthUser.username,
         avatarColor: existingAuthUser.avatarColor,
       },
-      config.JWT_TOKEN!
+      config.JWT_TOKEN!,
+      { expiresIn: "7d" }
     );
+
     req.session = { token: userJwt };
+    if(keepLoggedIn) {
+      req.sessionOptions.maxAge = 1000 * 60 * 60 * 24 * 7; // 7 Days
+    } else {
+      req.sessionOptions.maxAge = undefined;
+    }
 
     // ----------------- Finally, The Response  -----------------
     const userDocument: IUserDocument = {

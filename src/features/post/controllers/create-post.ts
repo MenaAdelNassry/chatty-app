@@ -2,13 +2,13 @@ import { IPostDocument } from "@post/interfaces/post.interface";
 import { Request, Response } from "express";
 import { ObjectId } from "mongodb";
 import HTTP_STATUS from 'http-status-codes';
-import { postSchema, postWithImageSchema } from "@post/schemes/post.schemes";
-import { BadRequestError, joiRequestValidationError } from "@global/helpers/error-handler";
+import { postSchema, postWithImageSchema, postWithVideoSchema } from "@post/schemes/post.schemes";
+import { joiRequestValidationError } from "@global/helpers/error-handler";
 import { PostCache } from "@service/redis/post.cache";
 import { socketIOPostObject } from "@socket/post";
 import { postQueue } from "@service/queues/post.queue";
 import { UploadApiResponse } from "cloudinary";
-import { uploads } from "@global/helpers/cloudinary-upload";
+import { uploadToCloudinary } from "@global/helpers/cloudinary-upload";
 import { imageQueue } from "@service/queues/image.queue";
 
 const postCache: PostCache = new PostCache();
@@ -22,44 +22,15 @@ class Create {
     }
 
     // ----------------- Post Preparation -----------------
-    const { post, bgColor, privacy, gifUrl, profilePicture, feelings } = value;
     const postObjectId: ObjectId = new ObjectId();
 
-    const createdPost: IPostDocument = {
-      _id: postObjectId,
-      userId: req.currentUser!.userId,
-      avatarColor : req.currentUser!.avatarColor,
-      email: req.currentUser!.email,
-      username: req.currentUser!.username,
-      profilePicture,
-      post,
-      bgColor,
-      privacy,
-      gifUrl,
-      feelings,
-      commentsCount: 0,
-      imgId: '',
-      imgVersion: '',
-      createdAt: new Date(),
-      reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 },
-    } as IPostDocument;
-
-    // ----------------- Emit Post By Socket -----------------
-    socketIOPostObject.emit('add post', createdPost);
-
-    // ----------------- Save Post To Cache -----------------
-    await postCache.savePostToCache({
-      key: postObjectId,
-      currentUserId: `${req.currentUser!.userId}`,
-      uId: `${req.currentUser!.uId}`,
-      createdPost
+    const createdPost: IPostDocument = this.createPost({
+      ...value, postObjectId,
+      currentUser: req.currentUser!
     });
 
-    // ----------------- Add Job To Queue (add post to db) -----------------
-    postQueue.addPostJob("addPostToDB", {
-      key: req.currentUser!.userId,
-      value: createdPost
-    });
+    // ----------------- Emit And Save Post In Cache and DB -----------------
+    this.saveAndEmit(req, createdPost);
 
     // ----------------- Finally, The Response  -----------------
     res.status(HTTP_STATUS.CREATED).json({ message: "Post created successfully" });
@@ -73,41 +44,93 @@ class Create {
     }
 
     // ----------------- Upload Image To Cloudinary -----------------
-    const { post, bgColor, privacy, gifUrl, profilePicture, feelings, image } = value;
-
-    const result: UploadApiResponse = (await uploads(image)) as UploadApiResponse;
-    if(!result?.public_id) {
-      throw new BadRequestError(result.message);
-    }
+    const { image } = value;
+    const result: UploadApiResponse = await uploadToCloudinary(image);
 
     // ----------------- Post Preparation -----------------
     const postObjectId: ObjectId = new ObjectId();
-
-    const createdPost: IPostDocument = {
-      _id: postObjectId,
-      userId: req.currentUser!.userId,
-      avatarColor : req.currentUser!.avatarColor,
-      email: req.currentUser!.email,
-      username: req.currentUser!.username,
-      profilePicture,
-      post,
-      bgColor,
-      privacy,
-      gifUrl,
-      feelings,
-      commentsCount: 0,
+    const createdPost: IPostDocument = this.createPost({
+      ...value, postObjectId,
       imgId: result.public_id,
-      imgVersion: result.version.toString(),
+      imgVersion: result.version,
+      currentUser: req.currentUser!
+    });
+
+    // ----------------- Emit And Save Post In Cache and DB -----------------
+    this.saveAndEmit(req, createdPost);
+
+    // ----------------- Add Job To Queue (add image to db) -----------------
+    imageQueue.addImageJob("addImageToDB", {
+      key: req.currentUser!.userId,
+      publicId: result.public_id,
+      version: result?.version?.toString(),
+      type: "post"
+    });
+
+    // ----------------- Finally, The Response  -----------------
+    res.status(HTTP_STATUS.CREATED).json({ message: "Post created with image successfully" });
+  }
+
+  public postWithVideo = async (req: Request, res: Response): Promise<void> => {
+    // ----------------- Apply Validation -----------------
+    const { value, error } = postWithVideoSchema.validate(req.body);
+    if(error?.details) {
+      throw new joiRequestValidationError(error?.details[0].message);
+    }
+
+    // ----------------- Upload Image To Cloudinary -----------------
+    const { video } = value;
+    const result: UploadApiResponse = await uploadToCloudinary(video, { resource_type: "video" });
+
+    // ----------------- Post Preparation -----------------
+    const postObjectId: ObjectId = new ObjectId();
+    const createdPost: IPostDocument = this.createPost({
+      ...value, postObjectId,
+      videoId: result.public_id,
+      videoVersion: result.version,
+      currentUser: req.currentUser!
+    });
+
+    // ----------------- Emit And Save Post In Cache and DB -----------------
+    this.saveAndEmit(req, createdPost);
+
+    // ----------------- Add Job To Queue (add video to db) -----------------
+    // **************  Not Implemented Yet  *********************
+
+    // ----------------- Finally, The Response  -----------------
+    res.status(HTTP_STATUS.CREATED).json({ message: "Post created with video successfully" });
+  }
+
+  private createPost = (data: any): IPostDocument => {
+    return {
+      _id: data.postObjectId,
+      userId: data.currentUser.userId,
+      avatarColor : data.currentUser.avatarColor,
+      email: data.currentUser.email,
+      username: data.currentUser.username,
+      profilePicture: data.profilePicture,
+      post: data.post,
+      bgColor: data.bgColor,
+      privacy: data.privacy,
+      gifUrl: data.gifUrl,
+      feelings: data.feelings,
+      commentsCount: 0,
+      imgId: data.imgId || '',
+      imgVersion: data?.imgVersion?.toString() || '',
+      videoId: data.videoId || '',
+      videoVersion: data?.videoVersion?.toString() || '',
       createdAt: new Date(),
       reactions: { like: 0, love: 0, happy: 0, sad: 0, wow: 0, angry: 0 },
     } as IPostDocument;
+  }
 
+  private saveAndEmit = async (req: Request, createdPost: IPostDocument): Promise<void> => {
     // ----------------- Emit Post By Socket -----------------
     socketIOPostObject.emit('add post', createdPost);
 
     // ----------------- Save Post To Cache -----------------
     await postCache.savePostToCache({
-      key: postObjectId,
+      key: createdPost._id,
       currentUserId: `${req.currentUser!.userId}`,
       uId: `${req.currentUser!.uId}`,
       createdPost
@@ -118,19 +141,7 @@ class Create {
       key: req.currentUser!.userId,
       value: createdPost
     });
-
-    // ----------------- Add Job To Queue (add image to db) -----------------
-    imageQueue.addImageJob("addImageToDB", {
-      key: req.currentUser!.userId,
-      publicId: result.public_id,
-      version: result.version.toString(),
-      type: "post"
-    });
-
-    // ----------------- Finally, The Response  -----------------
-    res.status(HTTP_STATUS.CREATED).json({ message: "Post created with image successfully" });
   }
-
 }
 
 export const create: Create = new Create();
