@@ -14,8 +14,6 @@ export interface IUserDocument extends Document {
   school: string;
   quote: string;
   location: string;
-  blocked: mongoose.Types.ObjectId[];
-  blockedBy: mongoose.Types.ObjectId[];
   followersCount: number;
   followingCount: number;
   notifications: INotificationSettings;
@@ -58,7 +56,7 @@ export interface ISearchUser {
   _id: string;
   profilePicture: string;
   username: string;
-  email: string;
+  following: boolean;
   avatarColor: string;
 }
 

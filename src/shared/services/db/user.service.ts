@@ -6,7 +6,7 @@ import { AuthModel } from '@auth/models/auth.schema';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { BadRequestError } from '@global/helpers/error-handler';
 import { authService } from './auth.service';
-import { INotification } from '@notification/interfaces/notification.interface';
+import { Helpers } from '@global/helpers/helpers';
 
 class UserService {
   public async addUserToDB(data: IUserDocument): Promise<void> {
@@ -25,66 +25,18 @@ class UserService {
   }
 
   public async getUserById(userId: string): Promise<IUserDocument> {
-    const users: IUserDocument[] = await UserModel.aggregate([
+    const aggregate: any[] = [
       { $match: { _id: new mongoose.Types.ObjectId(userId) } },
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
       { $project: this.aggregateProject() }
-    ]);
+    ];
+
+    const users: IUserDocument[] = await UserModel.aggregate(aggregate);
 
     return users[0];
   }
 
-  // -------------------------------------------------------------------------
-  // TODO: ⚠️ CRITICAL LOGIC BUG (Non-Deterministic Pagination)
-  //
-  // Current Implementation:
-  // We are applying `$skip` and `$limit` BEFORE `$sort`.
-  //
-  // The Problem (Why this breaks):
-  // MongoDB retrieves the first `limit` documents based on "Natural Order" (disk storage order),
-  // which is effectively random. We then sort ONLY that small random chunk.
-  //
-  // Expected Failure Scenario (How to verify):
-  // 1. Create 20 users with different `createdAt` dates.
-  // 2. Request Page 1 (limit 10). You get a random set of 10, sorted.
-  // 3. Request Page 2. You might get some users from Page 1 again, or miss users entirely.
-  // 4. The result is NOT "The latest users globally", but "The latest users from a random bucket".
-  //
-  // FIX:
-  // Move `{ $sort: { createdAt: -1 } }` to be the SECOND stage (immediately after $match).
-  // This forces DB to sort the entire collection first, guaranteeing stable pagination.
-  // -------------------------------------------------------------------------
-  public async getAllUsers(excludedUserId: string, skip: number, limit: number): Promise<IUserDocument[]> {
-    const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { _id: { $ne: new mongoose.Types.ObjectId(excludedUserId) } } },
-      { $skip: skip },
-      { $limit: limit },
-      { $sort: { createdAt: -1 } }, // <--- This line is in the wrong place
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-      { $project: this.aggregateProject() }
-    ]);
-
-    return users;
-  }
-
-  // -------------------------------------------------------------------------
-  // NOTE For LEARNING 🧠 : estimatedDocumentCount() vs countDocuments()
-  //
-  // 1. countDocuments({}) -> O(N) Slow & Accurate
-  //    It performs a collection scan (or index scan), counting documents one by one.
-  //    On large datasets (millions), this can take seconds and consume CPU.
-  //
-  // 2. estimatedDocumentCount() -> O(1) Fast & Approximate
-  //    It does NOT count documents. Instead, it retrieves the collection's metadata
-  //    statistics stored internally by MongoDB. It is instantaneous.
-  //
-  // Trade-off:
-  // It might be slightly inaccurate if the server crashed recently or in sharded clusters
-  // (unclean shutdown might lead to metadata drift). However, for UI counters like
-  // "Total Users", the speed benefit vastly outweighs the rare risk of being off by a few digits.
-  // -------------------------------------------------------------------------
   public async countUsersInDB(): Promise<number> {
     const totalCount: number = await UserModel.find({}).countDocuments();
     return totalCount;
@@ -94,63 +46,20 @@ class UserService {
     await UserModel.updateOne({ _id: userId, bgImageId: imageId }, { $set: { bgImageId: '', bgImageVersion: '' } });
   }
 
-  public async getRandomUsersFromDB(myId: string): Promise<IUserDocument[]> {
-    const BATCH_SIZE = 50;
-    const TARGET_SIZE = 10;
-
-    const randomDocs = await UserModel.aggregate([
-      { $match: { _id: { $ne: new mongoose.Types.ObjectId(myId) } } },
-      { $sample: { size: BATCH_SIZE } },
-      { $project: { _id: 1 } }
-    ]);
-
-    const followeesIDs: string[] = await followerService.getFolloweeIds(myId);
-    const followeesSet = new Set(followeesIDs);
-
-    const filteredIds: mongoose.Types.ObjectId[] = [];
-
-    for (const doc of randomDocs) {
-      if (!followeesSet.has(doc._id.toString())) {
-        filteredIds.push(doc._id);
-      }
-      if (filteredIds.length === TARGET_SIZE) break;
-    }
-
+  public async getRandomUsersFromDB(excludeIds: string[]): Promise<IUserDocument[]> {
     const users: IUserDocument[] = await UserModel.aggregate([
-      { $match: { _id: { $in: filteredIds } } },
-      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
+      // 1. Filter Out Excluded IDs ($nin = Not In)
       {
-        $addFields: {
-          username: '$authId.username',
-          email: '$authId.email',
-          avatarColor: '$authId.avatarColor',
-          uId: '$authId.uId',
-          createdAt: '$authId.createdAt'
+        $match: {
+          _id: {
+            $nin: excludeIds.map((id) => new mongoose.Types.ObjectId(id)) // Convert Strings to ObjectIds
+          }
         }
       },
-      {
-        $project: { authId: 0, __v: 0 }
-      }
-    ]);
-
-    return users;
-  }
-
-  public async searchUsers(regex: RegExp): Promise<ISearchUser[]> {
-    const users: ISearchUser[] = await AuthModel.aggregate([
-      { $match: { username: regex } },
-      { $lookup: { from: 'User', localField: '_id', foreignField: 'authId', as: 'user' } },
-      { $unwind: '$user' },
-      {
-        $project: {
-          _id: '$user._id',
-          profilePicture: '$user.profilePicture',
-          username: 1,
-          email: 1,
-          avatarColor: 1
-        }
-      }
+      // 2. Random Sampling (Select 12 random users)
+      { $sample: { size: 12 } },
+      // 3. Hide Sensitive Data (Privacy)
+      { $project: this.aggregateProject() }
     ]);
 
     return users;
@@ -169,18 +78,20 @@ class UserService {
 
     const newHashedPassword: string = await existingUser.hashPassword(newPassword);
 
-    await AuthModel.updateOne({ _id: existingUser._id }, { password: newHashedPassword });
+    await AuthModel.updateOne({ _id: existingUser._id }, { $set: { password: newHashedPassword }, $inc: { tokenVersion: 1 } });
   }
 
   public async updateUserInfo(userId: string, info: IBasicInfo): Promise<void> {
     const { quote, work, school, location } = info;
 
-    await UserModel.updateOne(
-      { _id: userId },
-      {
-        $set: { quote, work, school, location }
-      }
-    );
+    const updateFields: Partial<IBasicInfo> = {};
+
+    if (quote !== undefined) updateFields.quote = quote;
+    if (work !== undefined) updateFields.work = work;
+    if (school !== undefined) updateFields.school = school;
+    if (location !== undefined) updateFields.location = location;
+
+    await UserModel.updateOne({ _id: userId }, { $set: updateFields });
   }
 
   public async updateSocialLinks(userId: string, socialLinks: ISocialLinks): Promise<void> {
@@ -193,10 +104,98 @@ class UserService {
   }
 
   public async updateNotificationSettings(userId: string, settings: INotificationSettings): Promise<void> {
-    await UserModel.updateOne(
-      { _id: userId },
-      { $set: { notifications: settings } }
-    );
+    await UserModel.updateOne({ _id: userId }, { $set: { notifications: settings } });
+  }
+
+  public async searchUsers(
+    query: string,
+    excludeIds: string[],
+    requestUserId: string,
+    skip: number,
+    limit: number
+  ): Promise<ISearchUser[]> {
+    const regex = new RegExp(Helpers.escapeRegex(query), 'i');
+    const startWithRegex = new RegExp(`^${Helpers.escapeRegex(query)}`, 'i'); 
+
+    const myObjectId = new mongoose.Types.ObjectId(requestUserId);
+
+    const users: ISearchUser[] = await UserModel.aggregate([
+      // Stage 1: Lookup Auth
+      {
+        $lookup: {
+          from: 'Auth',
+          localField: 'authId',
+          foreignField: '_id',
+          as: 'authId'
+        }
+      },
+      { $unwind: '$authId' },
+
+      // Stage 2: Match
+      {
+        $match: {
+          'authId.username': { $regex: regex },
+          _id: { $nin: excludeIds.map((id) => new mongoose.Types.ObjectId(id)) }
+        }
+      },
+
+      // 🔥 Stage 3: Add Scoring Field
+      {
+        $addFields: {
+          isStartsWith: {
+            $regexMatch: {
+              input: '$authId.username',
+              regex: startWithRegex
+            }
+          }
+        }
+      },
+
+      // 🔥 Stage 4: Smart Sort
+      {
+        $sort: {
+          isStartsWith: -1,
+          followersCount: -1,
+          _id: 1
+        }
+      },
+
+      // Stage 5: Pagination
+      { $skip: skip },
+      { $limit: limit },
+
+      // Stage 6: Lookup Following
+      {
+        $lookup: {
+          from: 'Follower',
+          let: { targetUserId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [{ $eq: ['$followerId', myObjectId] }, { $eq: ['$followeeId', '$$targetUserId'] }]
+                }
+              }
+            }
+          ],
+          as: 'isFollowingDoc'
+        }
+      },
+
+      // Stage 7: Project
+      {
+        $project: {
+          _id: 1,
+          profilePicture: 1,
+          username: '$authId.username',
+          uId: '$authId.uId',
+          avatarColor: '$authId.avatarColor',
+          following: { $gt: [{ $size: '$isFollowingDoc' }, 0] }
+        }
+      }
+    ]);
+
+    return users;
   }
 
   private aggregateProject() {
@@ -212,8 +211,6 @@ class UserService {
       school: 1,
       quote: 1,
       location: 1,
-      blocked: 1,
-      blockedBy: 1,
       followersCount: 1,
       followingCount: 1,
       notifications: 1,

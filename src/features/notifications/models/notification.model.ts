@@ -1,13 +1,12 @@
-import { INotification, INotificationDocument } from "@notification/interfaces/notification.interface";
-import { notificationService } from "@service/db/notification.service";
+import { INotificationDocument } from "@notification/interfaces/notification.interface";
 import mongoose, { Model, model, Schema } from "mongoose";
 
 const notificationSchema: Schema = new Schema({
-  userTo: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
+  userTo: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true }, // Index
   userFrom: { type: mongoose.Schema.Types.ObjectId, ref: "User" },
   read: { type: Boolean, default: false },
   message: { type: String, default: '' },
-  notificationType: String,
+  notificationType: String, // 'follow', 'like', 'comment', etc.
   entityId: mongoose.Schema.Types.ObjectId,
   createdItemId: mongoose.Schema.Types.ObjectId,
   comment: { type: String, default: '' },
@@ -19,17 +18,5 @@ const notificationSchema: Schema = new Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-notificationSchema.methods.insertNotification = async function(body: INotification) {
-  const { userTo } = body;
-  await NotificationModel.create(body);
-
-  try {
-    const notifications: INotificationDocument[] = await notificationService.getNotifications(userTo);
-    return notifications;
-  } catch (error) {
-    return error;
-  }
-}
-
-const NotificationModel: Model<INotificationDocument> = model<INotificationDocument>("Notification", notificationSchema, 'Notification');
+const NotificationModel: Model<INotificationDocument> = model<INotificationDocument>("Notification", notificationSchema, "Notification");
 export { NotificationModel };

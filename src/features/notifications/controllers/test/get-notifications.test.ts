@@ -28,7 +28,7 @@ describe("Get Notifications Controller", () => {
     expect(res.status).toHaveBeenCalledWith(HTTP_STATUS.OK);
     expect(res.json).toHaveBeenCalledWith({
       message: 'User notifications',
-      notifications: [mockNotification] // نتأكد إن الداتا رجعت زي ما هي
+      notifications: [mockNotification] 
     });
   });
 });

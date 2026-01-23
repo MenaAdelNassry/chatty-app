@@ -6,6 +6,7 @@ class CommentQueue extends BaseQueue {
   constructor() {
     super("comments");
     this.processJob("addCommentToDB", 5, commentWorker.addCommentToDB);
+    this.processJob("deleteCommentFromDB", 5, commentWorker.deleteCommentToDB);
   }
 
   public addCommentJob(name: string, data: ICommentJob): void {

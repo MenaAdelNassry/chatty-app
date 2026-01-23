@@ -1,4 +1,4 @@
-import { CustomError, IErrorResponse } from '@global/helpers/error-handler';
+import { BadRequestError, CustomError, IErrorResponse } from '@global/helpers/error-handler';
 import { Application, json, urlencoded, Response, Request, NextFunction } from "express";
 import http from "http";
 import cors from "cors";
@@ -20,6 +20,7 @@ import { SocketIOUserHandler } from '@socket/user';
 import { SocketIONotificationHandler } from '@socket/notification';
 import { SocketIOImageHandler } from '@socket/image';
 import { SocketIOChatHandler } from '@socket/chat';
+import jwt from 'jsonwebtoken';
 
 const SERVER_PORT = 5000;
 const log: Logger = config.createLogger("setupServer");
@@ -94,21 +95,34 @@ export class ChattyServer {
 
     private async startServer(app: Application): Promise<void> {
         try {
-            const httpServer: http.Server = new http.Server(app);
-            const socketIO: Server = await this.createSocketIO(httpServer);
-            this.startHttpServer(httpServer);
-            this.socketIOConnections(socketIO);
+          const httpServer: http.Server = new http.Server(app);
+          const socketIO: Server = await this.createSocketIO(httpServer);
+          this.startHttpServer(httpServer);
+          this.socketIOConnections(socketIO);
         } catch(err) {
-            log.error(err);
+          log.error(err);
         }
     }
 
     private async createSocketIO(httpServer: http.Server): Promise<Server> {
         const io: Server = new Server(httpServer, {
             cors: {
-                origin: config.CLIENT_URL,
-                methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'],
+              origin: config.CLIENT_URL,
+              methods: ['GET', 'POST', 'DELETE', 'PUT', 'OPTIONS'],
             }
+        });
+
+        io.use((socket, next) => {
+          const token = socket.handshake.auth.token;
+
+          if(!token) return next(new BadRequestError("Not authorized. No token provided."));
+          try {
+            const payload = jwt.verify(token, config.JWT_TOKEN!);
+            socket.data.user = payload;
+            next();
+          } catch (error) {
+            return next(new BadRequestError('Not authorized. Invalid token.'));
+          }
         });
 
         const pubClient = createClient({ url: config.REDIS_HOST });

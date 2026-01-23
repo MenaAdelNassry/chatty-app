@@ -1,4 +1,3 @@
-import { IFollowers } from "@follower/interfaces/follower.interface";
 import { Server, Socket } from "socket.io";
 
 export let socketIOFollowerObject: Server;
@@ -12,10 +11,9 @@ export class SocketIOFollowerHandler {
   }
 
   public listen(): void {
+    // The Controller then uses 'socketIOFollowerObject.emit()' to broadcast updates to the UI.
+    // This class strictly acts as the "Server-Side Socket Initializer".
     this.io.on("connection", (socket: Socket) => {
-      socket.on("unfollow user", (data: IFollowers) => {
-        this.io.emit("remove follower", data);
-      });
     });
   }
 }

@@ -33,14 +33,20 @@ export interface IFollowerData {
 }
 
 export interface IFollowerJobData {
-  keyOne?: string;
-  keyTwo?: string;
+  followerId?: string;
+  followeeId?: string;
   username?: string;
   followerDocumentId?: ObjectId;
 }
 
 export interface IBlockedUserJobData {
-  keyOne?: string;
-  keyTwo?: string;
+  userId?: string;
+  blockedUserId?: string;
   type?: string;
+}
+
+export interface IBlockDocument extends mongoose.Document {
+  blockerId: mongoose.Types.ObjectId;
+  blockedId: mongoose.Types.ObjectId;
+  createdAt: Date;
 }

@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import JWT from "jsonwebtoken";
 import { config } from "@root/config";
 import { authService } from '@service/db/auth.service';
-import { BadRequestError, joiRequestValidationError } from '@global/helpers/error-handler';
+import { BadRequestError, joiRequestValidationError, NotFoundError } from '@global/helpers/error-handler';
 import { loginSchema } from '@auth/schemes/signin';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { IUserDocument } from '@user/interfaces/user.interface';
@@ -32,6 +32,10 @@ class Signin {
 
     // ----------------- Generate JWT -----------------
     const user: IUserDocument = await userService.getUserByAuthId(`${existingAuthUser._id}`);
+    if(!user) {
+      throw new NotFoundError("User not found");
+    }
+
     const userJwt: string = JWT.sign(
       {
         userId: user._id,
@@ -39,6 +43,8 @@ class Signin {
         email: existingAuthUser.email,
         username: existingAuthUser.username,
         avatarColor: existingAuthUser.avatarColor,
+        profilePicture: user.profilePicture,
+        tokenVersion: existingAuthUser.tokenVersion ?? 0
       },
       config.JWT_TOKEN!,
       { expiresIn: "7d" }

@@ -16,6 +16,9 @@ export class SocketIOUserHandler {
 
   public listen(): void {
     this.io.on('connection', (socket: Socket) => {
+      const { userId } = socket.data.user;
+      socket.join(`user:${userId}`);
+      console.log(`User ${userId} connected and joined room: user:${userId}`);
 
       socket.on('setup', (data: ILogin) => {
         this.addClient(data.userId, socket.id);
@@ -44,7 +47,7 @@ export class SocketIOUserHandler {
 
   private removeClient(socketId: string): void {
     if (socketUserMap.has(socketId)) {
-      const userId = socketUserMap.get(socketId)!; // عرفنا مين اليوزر علطول
+      const userId = socketUserMap.get(socketId)!;
 
       userSocketMap.delete(userId);
       socketUserMap.delete(socketId);

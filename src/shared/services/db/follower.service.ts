@@ -1,133 +1,167 @@
 import { IFollowerData } from '@follower/interfaces/follower.interface';
 import { FollowerModel } from '@follower/models/follower.model';
-import { INotificationDocument, INotificationTemplate } from '@notification/interfaces/notification.interface';
-import { NotificationModel } from '@notification/models/notification.model';
-import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
-import { emailQueue } from '@service/queues/email.queue';
-import { UserCache } from '@service/redis/user.cache';
-import { socketIONotificationObject } from '@socket/notification';
-import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserModel } from '@user/models/user.schema';
 import { ObjectId } from 'mongodb';
 import mongoose from 'mongoose';
-import { userService } from './user.service';
+import { BadRequestError, ServerError } from '@global/helpers/error-handler';
+import { BlockModel } from '@follower/models/block.model';
+import { FollowerCache } from '@service/redis/follower.cache';
+import { notificationQueue } from '@service/queues/notification.queue';
 
-const userCache: UserCache = new UserCache();
+const followerCache: FollowerCache = new FollowerCache();
 
 class FollowerService {
-  public async addFollowerToDB(userId: string, followeeId: string, username: string, followerDocumentId: ObjectId): Promise<void> {
-    const followeeObjectId: ObjectId = new mongoose.Types.ObjectId(followeeId);
-    const followerObjectId: ObjectId = new mongoose.Types.ObjectId(userId);
+  /**
+   * Main Method: Add Follower
+   * Responsible for: DB Persistence + Cache Updates + Block Validation
+   */
+  public async addFollowerToDB(userId: string, followeeId: string, username: string, followerDocumentId: string): Promise<void> {
+    if (userId === followeeId) {
+      throw new BadRequestError('You cannot follow yourself.');
+    }
 
-    const following = await FollowerModel.create({
-      _id: followerDocumentId,
-      followeeId: followeeObjectId,
-      followerId: followerObjectId
-    });
+    const followeeObjectId = new mongoose.Types.ObjectId(followeeId);
+    const followerObjectId = new mongoose.Types.ObjectId(userId);
 
-    // -------------------------------------------------------------------------
-    // TODO: 🧪 PERFORMANCE BENCHMARK (Sequential vs Parallel)
-    //
-    // Current Implementation:
-    // We are using sequential 'await' (Serial Execution).
-    // - Pros: Safer flow (if creation fails, we don't attempt updates).
-    // - Cons: Higher Latency (Total Time = Create Time + Update1 Time + Update2 Time).
-    //
-    // FUTURE EXPERIMENT:
-    // Refactor this block to use `Promise.all([create, update1, update2])`.
-    // - Goal: Measure if parallel execution significantly improves response time.
-    // - Challenge: Analyze error handling (e.g., what if creating the follower succeeds but updating the count fails?).
-    // -------------------------------------------------------------------------
-    await UserModel.updateOne({ _id: followeeId }, { $inc: { followersCount: 1 } });
-    await UserModel.updateOne({ _id: userId }, { $inc: { followingCount: 1 } });
+    // 1. Validation Phase (Cache First Strategy) 🛡️
+    // No DB Fallback here to maintain performance.
+    const isUserBlocked = await followerCache.isUserBlockedBy(userId, followeeId);
+    const isUserBlocking = await followerCache.isUserBlockedBy(followeeId, userId);
+    if (isUserBlocked || isUserBlocking) {
+      throw new BadRequestError('Action denied.');
+    }
 
-    let followeeUserDocument: IUserDocument | null = await userCache.getUserFromCache(followeeId);
-    followeeUserDocument = followeeUserDocument ? followeeUserDocument : await userService.getUserById(followeeId);
+    try {
+      // 2. Persistence Phase (MongoDB) 💾
+      await FollowerModel.create({
+        _id: followerDocumentId,
+        followeeId: followeeObjectId,
+        followerId: followerObjectId
+      });
 
-    if (followeeUserDocument?.notifications.follows && userId !== followeeId) {
-      const notificationModel: INotificationDocument = new NotificationModel();
-      const notifications = await notificationModel.insertNotification({
+      // B. Update Counters (Parallel Execution) ⚡
+      await Promise.all([
+        UserModel.updateOne({ _id: followeeId }, { $inc: { followersCount: 1 } }),
+        UserModel.updateOne({ _id: userId }, { $inc: { followingCount: 1 } })
+      ]);
+
+      // 3. Caching Phase (Redis Update) ⚡
+      const followerCountPromise = followerCache.saveFollowerToCache(`following:${userId}`, followeeId, userId, 'followingCount');
+      const followeeCountPromise = followerCache.saveFollowerToCache(`followers:${followeeId}`, userId, followeeId, 'followersCount');
+      await Promise.all([followerCountPromise, followeeCountPromise]);
+
+      notificationQueue.addNotificationJob('insertNotification', {
         userFrom: userId,
         userTo: followeeId,
         message: `${username} is now following you.`,
         notificationType: 'follows',
-        entityId: new mongoose.Types.ObjectId(userId),
-        createdItemId: new mongoose.Types.ObjectId(following._id),
+        entityId: userId,
+        createdItemId: followerDocumentId,
         createdAt: new Date(),
-        comment: '',
-        post: '',
-        imgId: '',
-        imgVersion: '',
-        gifUrl: '',
-        reaction: ''
       });
-
-      socketIONotificationObject.emit('insert notification', notifications, { userTo: followeeId });
-
-      const templateParams: INotificationTemplate = {
-        username: followeeUserDocument.username!,
-        message: `${username} is now following you.`,
-        header: 'Follower Notification'
-      };
-
-      const template: string = notificationTemplate.notificationTemplate(templateParams);
-      emailQueue.addEmailJob('followersEmail', {
-        receiverEmail: followeeUserDocument.email!,
-        template,
-        subject: `${username} is now following you.`
-      });
+    } catch (error: any) {
+      // 4. Idempotency Handler 🛡️
+      // Error 11000 = Duplicate Key. It means the user is already following.
+      // We swallow this error to make the operation idempotent (safe to retry).
+      if (error.code === 11000) {
+        return;
+      }
+      // Any other error is a real server issue.
+      throw new ServerError('Server error. Try again.');
     }
   }
 
+  /**
+   * Unfollow User Method
+   * Responsible for: DB Cleanup + Cache Cleanup + Removing Old Notification
+   */
   public async removeFollowerFromDB(followeeId: string, followerId: string): Promise<void> {
-    const followeeObjectId: ObjectId = new mongoose.Types.ObjectId(followeeId);
-    const followerObjectId: ObjectId = new mongoose.Types.ObjectId(followerId);
+    if (followerId === followeeId) {
+      throw new BadRequestError('You cannot unfollow yourself.');
+    }
 
-    // -------------------------------------------------------------------------
-    // TODO: ⚠️ TECHNICAL DEBT (Performance & Data Integrity)
-    //
-    // 1. Performance (Sequential Execution):
-    //    We are awaiting DB writes one by one. Refactor to use `Promise.all`
-    //    to execute both updates in parallel for faster response time.
-    //
-    // 2. Data Integrity (Negative Counts):
-    //    Using `$inc: -1` blindly can lead to negative follower counts (e.g., -1)
-    //    if the database state was already corrupted or 0.
-    //
-    //    FUTURE FIX:
-    //    - Use MongoDB conditional updates to ensure count never goes below 0.
-    //    - Example: { $inc: { followersCount: -1 }, $max: { followersCount: 0 } } (Available in newer Mongo versions)
-    //    - Or query logic: { _id: followeeId, followersCount: { $gt: 0 } }
-    // -------------------------------------------------------------------------
-    await FollowerModel.deleteOne({
+    const followeeObjectId = new mongoose.Types.ObjectId(followeeId);
+    const followerObjectId = new mongoose.Types.ObjectId(followerId);
+
+    // 1. Persistence Phase (MongoDB) 💾
+    // Delete the relationship document
+    const deletePromise = FollowerModel.deleteOne({
       followeeId: followeeObjectId,
       followerId: followerObjectId
     });
 
-    await UserModel.updateOne({ _id: followeeId }, { $inc: { followersCount: -1 } });
-    await UserModel.updateOne({ _id: followerId }, { $inc: { followingCount: -1 } });
+    // Update Counters (Decrement -1) (Parallel Execution)
+    const usersPromise = Promise.all([
+      UserModel.updateOne({ _id: followeeId }, { $inc: { followersCount: -1 } }),
+      UserModel.updateOne({ _id: followerId }, { $inc: { followingCount: -1 } })
+    ]);
+
+    await Promise.all([deletePromise, usersPromise]);
+
+    // 2. Caching Phase (Redis Update) ⚡
+    const response1 = followerCache.removeFollowerFromCache(
+      `following:${followerId}`,
+      followeeId,
+      followerId,
+      'followingCount'
+    );
+
+    const response2 = followerCache.removeFollowerFromCache(
+      `followers:${followeeId}`,
+      followerId,
+      followeeId,
+      'followersCount'
+    );
+
+    await Promise.all([response1, response2]);
+
+    notificationQueue.addNotificationJob('deleteNotification', {
+      userFrom: followerId,
+      userTo: followeeId,
+      notificationType: 'follows',
+    });
   }
 
-  public async getUserFollowing(userId: ObjectId): Promise<IFollowerData[]> {
-    return await this.getFollowersData(userId, 'following');
+  // Added skip and limit for Pagination
+  public async getUserFollowing(userId: ObjectId, skip: number, limit: number): Promise<IFollowerData[]> {
+    return await this.getFollowersData(userId, 'following', skip, limit);
   }
 
-  public async getUserFollowers(userId: ObjectId): Promise<IFollowerData[]> {
-    return await this.getFollowersData(userId, 'followers');
+  // Added skip and limit for Pagination
+  public async getUserFollowers(userId: ObjectId, skip: number, limit: number): Promise<IFollowerData[]> {
+    return await this.getFollowersData(userId, 'followers', skip, limit);
   }
 
   public async getFolloweeIds(userId: string): Promise<string[]> {
     const followings = await FollowerModel.find({ followerId: userId }).select('followeeId');
-
     return followings.map((f) => f.followeeId.toString());
   }
 
-  private async getFollowersData(userId: ObjectId, type: 'followers' | 'following'): Promise<IFollowerData[]> {
+  public async isAnyBlockingExist(userId1: string, userId2: string): Promise<boolean> {
+    const existingBlock = await BlockModel.findOne({
+      $or: [
+        { blockerId: userId1, blockedId: userId2 },
+        { blockerId: userId2, blockedId: userId1 }
+      ]
+    });
+
+    return existingBlock ? true : false;
+  }
+
+  // ✅ PAGINATION IMPLEMENTED in Aggregation
+  private async getFollowersData(userId: ObjectId, type: 'followers' | 'following', skip: number, limit: number): Promise<IFollowerData[]> {
     const userMatchId = type === 'following' ? 'followerId' : 'followeeId';
     const userLookupId = type === 'following' ? 'followeeId' : 'followerId';
 
     const result: IFollowerData[] = await FollowerModel.aggregate([
       { $match: { [userMatchId]: userId } },
+
+      // 🚀 PERFORMANCE BOOST:
+      // Sort, Skip, and Limit MUST happen BEFORE the Lookup.
+      // Otherwise, you join 1M users and then throw away 999,990 of them.
+      { $sort: { createdAt: -1 } }, // Sort by newest first (optional but recommended)
+      { $skip: skip },
+      { $limit: limit },
 
       { $lookup: { from: 'User', localField: userLookupId, foreignField: '_id', as: userLookupId } },
       { $unwind: `$${userLookupId}` },
@@ -136,26 +170,15 @@ class FollowerService {
       { $unwind: '$authId' },
 
       {
-        $addFields: {
+        $project: {
           _id: `$${userLookupId}._id`,
-          username: '$authId.username',
           uId: '$authId.uId',
+          username: '$authId.username',
           avatarColor: '$authId.avatarColor',
           profilePicture: `$${userLookupId}.profilePicture`,
           postsCount: `$${userLookupId}.postsCount`,
           followersCount: `$${userLookupId}.followersCount`,
-          followingCount: `$${userLookupId}.followingCount`,
-          userProfile: `$${userLookupId}`
-        }
-      },
-
-      {
-        $project: {
-          authId: 0,
-          followerId: 0,
-          followeeId: 0,
-          createdAt: 0,
-          __v: 0
+          followingCount: `$${userLookupId}.followingCount`
         }
       }
     ]);

@@ -20,7 +20,8 @@ export interface IPostDocument extends Document {
   gifUrl?: string;
   privacy?: string;
   reactions?: IReactions;
-  createdAt?: Date;
+  createdAt?: Date | string;
+  currentUserReaction?: string;
 }
 
 export interface IGetPostsQuery {
@@ -30,12 +31,13 @@ export interface IGetPostsQuery {
   videoId?: boolean;
   gifUrl?: boolean;
   userId?: string;
+  privacy?: object;
 }
 
 export interface ISavePostToCache {
   key: ObjectId | string;
   currentUserId: string;
-  uId: string;
+  uId?: string;
   createdPost: IPostDocument;
 }
 
@@ -44,6 +46,8 @@ export interface IPostJobData {
   value?: IPostDocument;
   keyOne?: string;
   keyTwo?: string;
+  imgId?: string;
+  videoId?: string;
 }
 
 export interface IQueryComplete {

@@ -1,53 +1,79 @@
 import Joi, { ObjectSchema } from 'joi';
 
-// 1. General Schema (Base properties shared by all)
-const basicPostProps = {
+// ---------------------------------------------------------
+// 1. Base Definitions
+// ---------------------------------------------------------
+const basicFields = {
   post: Joi.string().optional().allow(null, ''),
   bgColor: Joi.string().optional().allow(null, ''),
-  privacy: Joi.string().optional().allow(null, ''),
+  privacy: Joi.string().valid('Public', 'Private', 'public', 'private').optional().allow(null, ''),
   feelings: Joi.string().optional().allow(null, ''),
   gifUrl: Joi.string().optional().allow(null, ''),
-  profilePicture: Joi.string().uri().optional().allow(null, ''),
-
   imgVersion: Joi.string().optional().allow(null, ''),
   imgId: Joi.string().optional().allow(null, ''),
-  image: Joi.string().optional().allow(null, ''),
   videoVersion: Joi.string().optional().allow(null, ''),
-  videoId: Joi.string().optional().allow(null, ''),
-  video: Joi.string().optional().allow(null, ''),
+  videoId: Joi.string().optional().allow(null, '')
 };
 
 // ---------------------------------------------------------
-// Schema for TEXT POSTS (No Image/Video required)
+// 2. Create Schemas
 // ---------------------------------------------------------
-const postSchema: ObjectSchema = Joi.object().keys({
-  ...basicPostProps,
-});
 
-// ---------------------------------------------------------
-// Schema for IMAGE POSTS (Supports Create & Update)
-// ---------------------------------------------------------
+// A. Text Only Post
+const postSchema: ObjectSchema = Joi.object()
+  .keys({
+    ...basicFields,
+    bgColor: Joi.string().optional().default('#ffffff'),
+    privacy: Joi.string().valid('Public', 'Private', 'public', 'private').default('Public')
+  })
+  .custom((value, helpers) => {
+    const hasText = value.post && value.post.trim().length > 0;
+    const hasGif = value.gifUrl && value.gifUrl.trim().length > 0;
+
+    if (!hasText && !hasGif) {
+      return helpers.message({ custom: 'Post must contain at least text or a GIF' });
+    }
+    return value;
+  });
+
+// B. Post With Image
 const postWithImageSchema: ObjectSchema = Joi.object().keys({
-  ...basicPostProps,
+  ...basicFields,
+  bgColor: Joi.string().optional().default('#ffffff'),
+  privacy: Joi.string().valid('Public', 'Private', 'public', 'private').default('Public'),
 
-}).custom((value, helpers) => {
-  if(!value.image && !value.imgId) {
-    return helpers.message({ custom: 'You must provide either an image file or an existing imageID' });
-  }
-  return value;
+  image: Joi.string().required().messages({
+    'any.required': 'Image is required',
+    'string.base': 'Image must be a valid string (base64)'
+  })
 });
 
-// ---------------------------------------------------------
-// Schema for VIDEO POSTS (Supports Create & Update)
-// ---------------------------------------------------------
+// C. Post With Video
 const postWithVideoSchema: ObjectSchema = Joi.object().keys({
-  ...basicPostProps,
+  ...basicFields,
+  bgColor: Joi.string().optional().default('#ffffff'),
+  privacy: Joi.string().valid('Public', 'Private', 'public', 'private').default('Public'),
 
-}).custom((value, helpers) => {
-  if(!value.video && !value.videoId) {
-    return helpers.message({ custom: 'You must provide either a video file or an existing videoID' });
-  }
-  return value;
+  video: Joi.string().required().messages({
+    'any.required': 'Video is required',
+    'string.base': 'Video must be a valid string'
+  })
 });
 
-export { postSchema, postWithImageSchema, postWithVideoSchema };
+// ---------------------------------------------------------
+// 3. Unified Update Schema
+// ---------------------------------------------------------
+const updatePostSchema: ObjectSchema = Joi.object()
+  .keys({
+    ...basicFields,
+    image: Joi.string().allow('').optional(),
+    video: Joi.string().allow('').optional(),
+    gifUrl: Joi.string().uri().optional(),
+  })
+  .min(1)
+  .messages({
+    'object.min': 'You must provide at least one field to update'
+  })
+  .oxor('image', 'video', 'gifUrl');;
+
+export { postSchema, postWithImageSchema, postWithVideoSchema, updatePostSchema };

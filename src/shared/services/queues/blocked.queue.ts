@@ -5,8 +5,8 @@ import { blockedUserWorker } from "@worker/blocked.worker";
 class BlockedUserQueue extends BaseQueue {
   constructor() {
     super("blockedUsers");
-    this.processJob('updateBlockedUserInDB', 5, blockedUserWorker.updateBlockedUserInDB);
-    this.processJob('removeBlockedUserFromDB', 5, blockedUserWorker.updateBlockedUserInDB);
+    this.processJob('addBlockToDB', 5, blockedUserWorker.addBlockToDB);
+    this.processJob('removeBlockFromDB', 5, blockedUserWorker.removeBlockFromDB);
   }
 
   public addBlockedUserJob(name: string, data: IBlockedUserJobData): void {

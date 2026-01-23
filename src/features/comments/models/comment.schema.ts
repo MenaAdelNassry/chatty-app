@@ -3,6 +3,7 @@ import { ICommentDocument } from "@comment/interfaces/comment.interface";
 
 const commentSchema: Schema = new Schema({
   postId: { type: mongoose.Schema.Types.ObjectId, ref: "Post", index: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: "User", index: true },
   comment: { type: String, default: '' },
   username: { type: String },
   avatarColor: { type: String },

@@ -1,21 +1,22 @@
 import HTTP_STATUS from 'http-status-codes';
-import { ObjectId } from "mongodb";
-import { Request, Response } from "express";
-import { signupSchema } from "@auth/schemes/signup";
-import { joiRequestValidationError } from "@global/helpers/error-handler";
-import { authService } from "@service/db/auth.service";
-import { IAuthDocument, ISignUpData } from "@auth/interfaces/auth.interface";
-import { BadRequestError } from "@global/helpers/error-handler";
-import { Helpers } from "@global/helpers/helpers";
-import { UploadApiResponse } from "cloudinary";
-import { uploadToCloudinary } from "@global/helpers/cloudinary-upload";
+import { ObjectId } from 'mongodb';
+import { Request, Response } from 'express';
+import { signupSchema } from '@auth/schemes/signup';
+import { joiRequestValidationError } from '@global/helpers/error-handler';
+import { authService } from '@service/db/auth.service';
+import { IAuthDocument, ISignUpData } from '@auth/interfaces/auth.interface';
+import { BadRequestError } from '@global/helpers/error-handler';
+import { Helpers } from '@global/helpers/helpers';
+import { UploadApiResponse } from 'cloudinary';
+import { uploadToCloudinary } from '@global/helpers/cloudinary-upload';
 import { IUserDocument } from '@user/interfaces/user.interface';
-import { UserCache } from "@service/redis/user.cache";
+import { UserCache } from '@service/redis/user.cache';
 import { config } from '@root/config';
 import { omit } from 'lodash';
 import { authQueue } from '@service/queues/auth.queue';
 import { userQueue } from '@service/queues/user.queue';
 import JWT from 'jsonwebtoken';
+import { imageQueue } from '@service/queues/image.queue';
 
 const userCache: UserCache = new UserCache();
 
@@ -23,15 +24,15 @@ class Signup {
   public create = async (req: Request, res: Response): Promise<void> => {
     // ----------------- Apply Validation -----------------
     const { value, error } = signupSchema.validate(req.body);
-    if(error?.details) {
+    if (error?.details) {
       throw new joiRequestValidationError(error.details[0].message);
     }
 
     // ----------------- Check If (username | email) Exist  -----------------
     const { username, email, password, avatarColor, avatarImage } = value;
     const checkIfUserExist: IAuthDocument | null = await authService.getUserByUsernameOrEmail(username, email);
-    if(checkIfUserExist) {
-      throw new BadRequestError("Invalid credentials");
+    if (checkIfUserExist) {
+      throw new BadRequestError('Invalid credentials');
     }
 
     // ----------------- Cloudinary Function  -----------------
@@ -45,31 +46,41 @@ class Signup {
       email,
       avatarColor,
       password,
-      uId,
+      uId
     });
     const result: UploadApiResponse = await uploadToCloudinary(avatarImage, {
       public_id: `${userObjectId}`,
       overwrite: true,
-      invalidate: true,
+      invalidate: true
+    });
+
+    // ----------------- Add To Image Collection  -----------------
+    const url = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${result.version}/${userObjectId}`;
+    imageQueue.addImageJob('addUserProfileImageToDB', {
+      key: `${userObjectId}`,
+      value: url,
+      publicId: `${userObjectId}`,
+      version: `${result.version}`,
+      newImage: true
     });
 
     // ----------------- Add To Redis Cache  -----------------
     const userDataForCache: IUserDocument = this.userData(authData, userObjectId);
-    userDataForCache.profilePicture = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${result.version}/${userObjectId}`;
+    userDataForCache.profilePicture = url;
     userCache.saveUserToCache(`${userObjectId}`, uId, userDataForCache);
 
     // ----------------- Save User To DB  -----------------
-    const dataForUserQueue: IUserDocument = omit(userDataForCache, [ 'uId', 'username', 'email', 'avatarColor', 'password' ]);
+    const dataForUserQueue: IUserDocument = omit(userDataForCache, ['uId', 'username', 'email', 'avatarColor', 'password']);
     authQueue.addAuthUserJob('addAuthUserToDB', { value: authData });
-    userQueue.addUserJob("addUserToDB", { value: dataForUserQueue });
+    userQueue.addUserJob('addUserToDB', { value: dataForUserQueue });
 
     // ----------------- JWT Token  -----------------
-    const userJwt: string = this.signToken(authData, userObjectId);
+    const userJwt: string = this.signToken(authData, userObjectId, userDataForCache.profilePicture);
     req.session = { token: userJwt };
 
     // ----------------- Finally, The Response  -----------------
-    res.status(HTTP_STATUS.CREATED).json({ message: "User created successfully", user: userDataForCache, token: userJwt });
-  }
+    res.status(HTTP_STATUS.CREATED).json({ message: 'User created successfully', user: userDataForCache, token: userJwt });
+  };
 
   private signupData(data: ISignUpData): IAuthDocument {
     const { _id, username, password, email, uId, avatarColor } = data;
@@ -80,23 +91,21 @@ class Signup {
       email: Helpers.lowerCase(email),
       uId,
       avatarColor,
-      createdAt: new Date()
-    } as IAuthDocument
+      createdAt: new Date(),
+      tokenVersion: 0
+    } as IAuthDocument;
   }
 
-    private userData(data: IAuthDocument, userObjectId: ObjectId): IUserDocument {
-    const { _id, username, email, uId, password, avatarColor } = data;
+  private userData(data: IAuthDocument, userObjectId: ObjectId): IUserDocument {
+    const { _id, username, email, uId, avatarColor } = data;
     return {
       _id: userObjectId,
       authId: _id,
       uId,
       username: Helpers.firstLetterUppercase(username),
       email,
-      password,
       avatarColor,
       profilePicture: '',
-      blocked: [],
-      blockedBy: [],
       work: '',
       location: '',
       school: '',
@@ -106,6 +115,7 @@ class Signup {
       followersCount: 0,
       followingCount: 0,
       postsCount: 0,
+      createdAt: Date.now(),
       notifications: {
         messages: true,
         reactions: true,
@@ -121,7 +131,7 @@ class Signup {
     } as unknown as IUserDocument;
   }
 
-  private signToken(data: IAuthDocument, userObjectId: ObjectId): string {
+  private signToken(data: IAuthDocument, userObjectId: ObjectId, profilePicture: string): string {
     return JWT.sign(
       {
         userId: userObjectId,
@@ -129,6 +139,8 @@ class Signup {
         email: data.email,
         username: data.username,
         avatarColor: data.avatarColor,
+        profilePicture,
+        tokenVersion: 0 // ✅ Add to Payload (Must match DB default)
       },
       config.JWT_TOKEN!
     );

@@ -1,6 +1,6 @@
 import mongoose from 'mongoose';
 
-export type imageTypes = "profile" | "background" | "post";
+export type imageTypes = "profile" | "background" | "post" | "all";
 
 export interface IFileImageDocument extends mongoose.Document {
   _id: string | mongoose.Types.ObjectId;
@@ -9,6 +9,7 @@ export interface IFileImageDocument extends mongoose.Document {
   publicId: string;
   type: imageTypes;
   createdAt: Date;
+  postId?: mongoose.Types.ObjectId | string;
 }
 
 export interface IFileImageJobData {
@@ -19,10 +20,13 @@ export interface IFileImageJobData {
   userId?: string;
   imageId?: string;
   type?: imageTypes;
+  postId?: mongoose.Types.ObjectId | string;
+  newImage?: boolean;
 }
 
 export interface IBgUploadResponse {
   version: string;
   publicId: string;
   public_id?: string;
+  url: string;
 }

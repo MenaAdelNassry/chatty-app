@@ -1,36 +1,24 @@
-import { followerQueue } from "@service/queues/follower.queue";
-import { FollowerCache } from "@service/redis/follower.cache";
-import { Request, Response } from "express";
+import { Request, Response } from 'express';
 import HTTP_STATUS from 'http-status-codes';
-
-const followerCache: FollowerCache = new FollowerCache();
+import { objectIdSchema } from '@global/helpers/joi.schema';
+import { BadRequestError, NotFoundError } from '@global/helpers/error-handler';
+import { followerService } from '@service/db/follower.service';
 
 class Remove {
-  public async follower(req: Request, res: Response): Promise<void> {
+  public follower = async (req: Request, res: Response): Promise<void> => {
     const { followeeId } = req.params;
     const followerId = req.currentUser!.userId;
 
-    // -------------------------------------------------------------------------
-    // TODO: ⚠️ ATOMICITY RISK (Technical Debt)
-    // We are performing 4 separate Redis operations in parallel.
-    // If server crashes mid-process, we might end up with inconsistent state
-    // (e.g., removed from list but count didn't decrement).
-    // FUTURE FIX: Use Redis Transactions (MULTI/EXEC).
-    // -------------------------------------------------------------------------
-    await Promise.all([
-      followerCache.removeFollowerFromCache(`followers:${followeeId}`, followerId),
-      followerCache.removeFollowerFromCache(`following:${followerId}`, followeeId),
-      followerCache.updateFollowersCountInCache(followeeId, "followersCount", -1),
-      followerCache.updateFollowersCountInCache(followerId, "followingCount", -1)
-    ]);
+    // 1. Validation & Safety Checks
+    const { error } = objectIdSchema.validate({ param: followeeId });
+    if (error) throw new BadRequestError(error.details[0].message);
 
-    followerQueue.addFollowerJob('removeFollowerFromDB', {
-      keyOne: followeeId,
-      keyTwo: followerId
-    });
+    // 2. Call Service 📞
+    await followerService.removeFollowerFromDB(followeeId, followerId);
 
+    // 3. Response 🚀
     res.status(HTTP_STATUS.OK).json({ message: 'Unfollowed user now' });
-  }
+  };
 }
 
 export const remove: Remove = new Remove();

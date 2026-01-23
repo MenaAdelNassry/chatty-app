@@ -28,6 +28,8 @@ const postSchema: Schema = new Schema({
   createdAt: { type: Date, default: Date.now },
 });
 
+postSchema.index({ createdAt: -1 });
+
 const PostModel: Model<IPostDocument> = model<IPostDocument>('Post', postSchema, 'Post');
 
 export { PostModel };

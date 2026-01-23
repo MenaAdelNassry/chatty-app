@@ -34,7 +34,7 @@ class MailTransport {
         pass: config.SENDER_EMAIL_PASSWORD
       }
     });
-    
+
     const mailOptions: IMailOptions = {
       from: `Chatty App <${config.SENDER_EMAIL}>`,
       to: receiverEmail,
@@ -47,7 +47,7 @@ class MailTransport {
       log.info("Development email sent successfully.");
     } catch (err) {
       log.error("Error sending email: ", err);
-      throw new BadRequestError("Error sending email");
+      throw new Error("Error sending email");
     }
   }
 

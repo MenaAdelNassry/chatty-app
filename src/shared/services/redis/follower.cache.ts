@@ -6,11 +6,9 @@ import { IFollowerData } from '@follower/interfaces/follower.interface';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserCache } from './user.cache';
 import mongoose from 'mongoose';
-import { Helpers } from '@global/helpers/helpers';
+import { userService } from '@service/db/user.service';
 
 const log: Logger = config.createLogger('followersCache');
-
-type FollowerProp = 'followersCount' | 'followingCount';
 
 const userCache: UserCache = new UserCache();
 
@@ -19,93 +17,95 @@ export class FollowerCache extends BaseCache {
     super('followersCache');
   }
 
-  // -------------------------------------------------------------------------
-  // TODO: ⚠️ ARCHITECTURE IMPROVEMENT (Technical Debt)
-  // Currently using Redis LIST (LPUSH) which allows duplicates.
-  // Scenario: If a user experiences lag and clicks "Follow" multiple times,
-  // their ID will be stored multiple times in the list.
-  //
-  // FUTURE FIX:
-  // Switch to Redis SET (SADD/SREM). Sets automatically enforce uniqueness,
-  // preventing duplicate followers even if the request is sent multiple times.
-  // -------------------------------------------------------------------------
-  public async saveFollowerToCache(key: string, value: string): Promise<void> {
-    // this will be used for follower and follwee
+  /**
+   * ✅ ATOMIC SAVE:
+   * 1. Add follower to Sorted Set (ZADD) - Handles duplicates & ordering automatically.
+   * 2. Increment count (HINCRBY) - Updates user profile count.
+   * Both happen together or fail together.
+   */
+  public async saveFollowerToCache(
+    key: string,
+    value: string,
+    userId: string,
+    countProp: 'followingCount' | 'followersCount'
+  ): Promise<void> {
+    // this will be used for follower and follwee ==> (following:USER_ID) and (followers:USER_ID)
     try {
-      if (!this.client.isOpen) {
-        await this.client.connect();
-      }
+      await this.checkConnection();
 
-      await this.client.LPUSH(key, value);
+      const multi = this.client.multi(); // 🟢 Start Transaction
+
+      // 1. Add to Sorted Set (Score = Timestamp for chronological order)
+      // This solves the 'Duplicate' issue (Idempotency) because ZADD is unique by value.
+      multi.zAdd(key, { score: Date.now(), value });
+
+      // 2. Increment the count atomically
+      multi.hIncrBy(`users:${userId}`, countProp, 1);
+
+      await multi.exec(); // 🚀 Execute all
     } catch (err) {
       log.error(err);
       throw new ServerError('Server error. Try again.');
     }
   }
 
-  public async removeFollowerFromCache(key: string, value: string): Promise<void> {
-    // this will be used for follower and follwee
+  /**
+   * ✅ ATOMIC REMOVE:
+   * 1. Remove from Sorted Set (ZREM).
+   * 2. Decrement count (HINCRBY -1).
+   */
+  /**
+   * key: The Redis Key for the set (e.g., 'followers:123' or 'following:123')
+   * value: The ID to remove from the set
+   * userId: The ID of the user to decrement the count for
+   * countProp: 'followersCount' or 'followingCount'
+   */
+  public async removeFollowerFromCache(key: string, value: string, userId: string, countProp: string): Promise<void> {
     try {
-      if (!this.client.isOpen) {
-        await this.client.connect();
-      }
+      await this.checkConnection();
 
-      await this.client.LREM(key, 1, value);
+      const multi = this.client.multi();
+
+      // 1. Remove from Sorted Set (Use the full KEY, not just userId)
+      multi.zRem(key, value);
+
+      // 2. Decrement the count atomically (Use the userId to find the User Hash)
+      multi.hIncrBy(`users:${userId}`, countProp, -1);
+
+      await multi.exec();
     } catch (err) {
       log.error(err);
       throw new ServerError('Server error. Try again.');
     }
   }
 
-  // -------------------------------------------------------------------------
-  // TODO: ⚠️ DATA INTEGRITY RISK (Atomicity)
-  // We are updating the follower list and the count in two separate network calls.
-  // Scenario: If the server crashes/restarts AFTER adding the name but BEFORE
-  // incrementing the count, data becomes inconsistent (e.g., List has 100 items, Count says 99).
-  //
-  // FUTURE FIX:
-  // Refactor to use Redis Transactions (multi/exec). Combine the 'LPUSH' (or SADD)
-  // and 'HINCRBY' into a single atomic execution to ensure both succeed or fail together.
-  // -------------------------------------------------------------------------
-  public async updateFollowersCountInCache(userId: string, prop: FollowerProp, value: number): Promise<void> {
-    try {
-      if (!this.client.isOpen) {
-        await this.client.connect();
-      }
-
-      await this.client.HINCRBY(`users:${userId}`, prop, value);
-    } catch (err) {
-      log.error(err);
-      throw new ServerError('Server error. Try again.');
-    }
-  }
-
-  // Can be used for followers or following
-  public async getFollowersFromCache(key: string): Promise<IFollowerData[]> {
+  /**
+   * ✅ PAGINATION IMPLEMENTED:
+   */
+  public async getFollowersFromCache(key: string, start: number, end: number): Promise<IFollowerData[]> {
     try {
       if (!this.client.isOpen) {
         this.client.connect();
       }
 
-      // -------------------------------------------------------------------------
-      // TODO: 💣 CRASH RISK (Null Safety)
-      //
-      // Current Logic:
-      // We assume data ALWAYS exists in Redis. We fetch user by ID and immediately access properties
-      // like `user.avatarColor` without checking if `user` is null.
-      //
-      // HOW TO REPRODUCE THE BUG (After finishing the project):
-      // 1. Create a follower.
-      // 2. Go to Redis CLI/GUI and manually delete that follower's user data key (`users:ID`).
-      // 3. Call this endpoint.
-      // 4. RESULT: Server will CRASH with `TypeError: Cannot read properties of null`.
-      //
-      // FUTURE FIX:
-      // Check if `user` is null inside the loop. If null, fetch from MongoDB (Fallback).
-      // -------------------------------------------------------------------------
-      const followersIds: string[] = await this.client.LRANGE(key, 0, -1);
+      // ZRANGE with 'REV' returns newest first (highest score/timestamp to lowest)
+      // start: 0, end: 10 gives the top 11 items.
+      const followersIds: string[] = await this.client.zRange(key, start, end, { REV: true });
+
+      // If list is empty, return early to save resources
+      if (!followersIds.length) {
+        return [];
+      }
+
       const followersPromises = followersIds.map(async (id) => {
-        const user: IUserDocument = (await userCache.getUserFromCache(id)) as IUserDocument;
+        let user: IUserDocument | null = await userCache.getUserFromCache(id);
+
+        // 🛡️ Null Safety: In case user is evicted from cache
+        if (!user) {
+          user = await userService.getUserById(id);
+        }
+        if (!user) return null;
+
         const data: IFollowerData = {
           avatarColor: user.avatarColor!,
           followersCount: user.followersCount!,
@@ -121,7 +121,8 @@ export class FollowerCache extends BaseCache {
         return data;
       });
 
-      const followers: IFollowerData[] = await Promise.all(followersPromises);
+      // Filter out any nulls (in case a user wasn't found in cache)
+      const followers: IFollowerData[] = (await Promise.all(followersPromises)).filter((f) => f !== null);
       return followers;
     } catch (err) {
       log.error(err);
@@ -130,55 +131,138 @@ export class FollowerCache extends BaseCache {
   }
 
   // -------------------------------------------------------------------------
-  // TODO: ⚠️ CONCURRENCY HAZARD (Race Condition)
-  //
-  // Problem:
-  // We are using a "Read-Modify-Write" pattern (HGET -> JS Logic -> HSET).
-  // This operation is NOT atomic.
-  //
-  // Scenario:
-  // If two requests to block different users arrive simultaneously:
-  // 1. Req A reads list: []
-  // 2. Req B reads list: [] (because A hasn't written yet)
-  // 3. Req A writes: ['User1']
-  // 4. Req B writes: ['User2'] -> OVERWRITES 'User1'!
-  //
-  // FUTURE FIX:
-  // - Migrate data structure from JSON List to Redis SET.
-  // - Use atomic commands: SADD (add unique) and SREM (remove).
-  // - Redis Sets handle concurrency natively without race conditions.
+  // ✅ BLOCK USER:
+  // Uses Redis SET (SADD).
+  // - Unique: Prevents duplicates automatically (Idempotency).
+  // - Fast: O(1) operation.
   // -------------------------------------------------------------------------
+  public async blockUserInCache(userId: string, blockedUserId: string): Promise<void> {
+    try {
+      await this.checkConnection();
+
+      // 1. Add to Blocked Set
+      await this.client.sAdd(`users:blocked:${userId}`, blockedUserId);
+
+      // 2. Remove "He" from "My Following"
+      // zRem returns number of elements removed (1 if removed, 0 if not found)
+      const removedFromFollowing = await this.client.zRem(`following:${userId}`, blockedUserId);
+      const removedFromFollowers = await this.client.zRem(`followers:${blockedUserId}`, userId);
+
+      if (removedFromFollowing || removedFromFollowers) {
+        await this.client.hIncrBy(`users:${userId}`, 'followingCount', -1);
+        await this.client.hIncrBy(`users:${blockedUserId}`, 'followersCount', -1);
+      }
+
+      // 3. Remove "Me" from "His Following"
+      const removedFromHisFollowing = await this.client.zRem(`following:${blockedUserId}`, userId);
+      const removedFromMyFollowers = await this.client.zRem(`followers:${userId}`, blockedUserId);
+
+      if (removedFromHisFollowing || removedFromMyFollowers) {
+        await this.client.hIncrBy(`users:${blockedUserId}`, 'followingCount', -1);
+        await this.client.hIncrBy(`users:${userId}`, 'followersCount', -1);
+      }
+    } catch (err) {
+      log.error(err);
+      throw new ServerError('Server error. Try again.');
+    }
+  }
+
+  public async unblockUserInCache(userId: string, blockedUserId: string): Promise<void> {
+    try {
+      await this.checkConnection();
+
+      const key = `users:blocked:${userId}`;
+      await this.client.sRem(key, blockedUserId);
+    } catch (err) {
+      log.error(err);
+      throw new ServerError('Server error. Try again.');
+    }
+  }
+
   // -------------------------------------------------------------------------
-  // TODO: 🛡️ IDEMPOTENCY CHECK (Duplicate Prevention)
-  //
-  // Problem:
-  // Network lag or "double-clicks" can cause the client to send the same
-  // block request multiple times. Without this check, the list would contain
-  // duplicate IDs (e.g., ['User1', 'User1']).
-  //
-  // Solution:
-  // We explicitly check `!includes(value)` before pushing.
-  // Note: This check relies on the "read" state, so it is still vulnerable
-  // to the Race Condition mentioned above until we switch to Redis Sets.
+  // 🛠️ HELPER: CHECK IF BLOCKED
+  // Useful helper to quickly check if User A blocked User B
+  // Uses SISMEMBER (O(1)) - Extremely fast check.
   // -------------------------------------------------------------------------
-  public async updateBlockedUserPropInCache(
-    userId: string,
-    prop: 'blocked' | 'blockedBy',
-    value: string,
-    type: 'block' | 'unblock'
-  ): Promise<void> {
+  public async isUserBlockedBy(userId: string, possibleBlockerId: string): Promise<boolean> {
+    try {
+      await this.checkConnection();
+
+      const key = `users:blocked:${possibleBlockerId}`;
+      return (await this.client.SISMEMBER(key, userId)) === 1;
+    } catch (err) {
+      log.error(err);
+      throw new ServerError('Server error. Try again.');
+    }
+  }
+
+  public async getBlockedUsersFromCache(userId: string, start: number, end: number): Promise<IFollowerData[]> {
+    try {
+      await this.checkConnection();
+
+      const key = `users:blocked:${userId}`;
+      // 1. Get ALL blocked IDs (SMEMBERS returns an unsorted array)
+      const response: string[] = await this.client.sMembers(key);
+
+      // If empty, return early
+      if (!response.length) {
+        return [];
+      }
+
+      // 2. Manual Sort (Crucial for consistent pagination)
+      // We sort alphabetically by ID to ensure the order doesn't change on refresh.
+      response.sort();
+
+      // 3. Manual Slice (Pagination Logic)
+      const pagedIds = response.slice(start, end + 1);
+
+      // 4. Hydrate User Data
+      const followersPromises = pagedIds.map(async (id) => {
+        let user: IUserDocument | null = await userCache.getUserFromCache(id);
+        if(!user) {
+          user = await userService.getUserById(id);
+        }
+        if (!user) return null;
+
+        return {
+          _id: new mongoose.Types.ObjectId(user._id),
+          username: user.username!,
+          avatarColor: user.avatarColor!,
+          uId: user.uId!,
+          postsCount: user.postsCount,
+          followersCount: user.followersCount,
+          followingCount: user.followingCount,
+          profilePicture: user.profilePicture
+        } as IFollowerData;
+      });
+
+      const blockedUsers: IFollowerData[] = (await Promise.all(followersPromises)).filter((user) => user !== null) as IFollowerData[];
+      return blockedUsers;
+    } catch (error) {
+      log.error(error);
+      throw new ServerError('Server error. Try again.');
+    }
+  }
+
+  public async getFolloweesFromCache(key: string): Promise<string[]> {
     try {
       if (!this.client.isOpen) {
         await this.client.connect();
       }
-
-      let blockedUserList: string[] = Helpers.parseJson((await this.client.HGET(`users:${userId}`, prop)) as string) || [];
-      blockedUserList = type === 'block' ? [...blockedUserList, value] : blockedUserList.filter((id) => id !== value);
-
-      await this.client.HSET(`users:${userId}`, prop, JSON.stringify(blockedUserList));
-    } catch (err) {
-      log.error(err);
+      const response = await this.client.ZRANGE(key, 0, -1);
+      return response;
+    } catch (error) {
+      log.error(error);
       throw new ServerError('Server error. Try again.');
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // 🛡️ INTERNAL HELPER: CHECK CONNECTION
+  // -------------------------------------------------------------------------
+  private async checkConnection(): Promise<void> {
+    if (!this.client.isOpen) {
+      await this.client.connect();
     }
   }
 }

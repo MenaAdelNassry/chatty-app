@@ -7,6 +7,7 @@ class NotificationQueue extends BaseQueue {
     super("notifications");
     this.processJob("updateNotification", 5, notificationWorker.updateNotification);
     this.processJob("deleteNotification", 5, notificationWorker.deleteNotification);
+    this.processJob("insertNotification", 5, notificationWorker.insertNotification);
   }
 
   public addNotificationJob(name: string, data: INotificationJobData): void {

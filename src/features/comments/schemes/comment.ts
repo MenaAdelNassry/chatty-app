@@ -1,17 +1,14 @@
 import Joi, { ObjectSchema } from "joi";
 
 const addCommentSchema: ObjectSchema = Joi.object().keys({
-  userTo: Joi.string().required().messages({
-    'any.required': 'userTo is a required property'
-  }),
   postId: Joi.string().required().messages({
-    'any.required': 'postId is a required property'
+    'any.required': 'postId is a required property',
+    'string.empty': 'postId cannot be empty'
   }),
   comment: Joi.string().required().messages({
-    'any.required': 'comment is a required property'
-  }),
-  profilePicture: Joi.string().optional().allow("", null),
-  commentsCount: Joi.number().optional().allow("", null),
+    'any.required': 'comment is a required property',
+    'string.empty': 'comment cannot be empty'
+  })
 });
 
 export { addCommentSchema };

@@ -17,6 +17,18 @@ class CommentWorker {
       done(err as Error);
     }
   }
+
+  async deleteCommentToDB(job: Job, done: DoneCallback): Promise<void> {
+    try {
+      const { data } = job;
+      await commentService.deleteCommentFromDB(data.comment._id, data.postId);
+      job.progress(100);
+      done(null, job.data);
+    } catch (err) {
+      log.error(err);
+      done(err as Error);
+    }
+  }
 }
 
 export const commentWorker: CommentWorker = new CommentWorker();

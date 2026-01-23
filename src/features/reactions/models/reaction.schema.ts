@@ -1,14 +1,18 @@
-import { IReactionDocument } from "@reaction/interfaces/reaction.interface";
-import mongoose, { model, Model, Schema } from "mongoose";
+import { IReactionDocument } from '@reaction/interfaces/reaction.interface';
+import mongoose, { model, Model, Schema } from 'mongoose';
 
 const reactionSchema: Schema = new Schema({
-  postId: { type: mongoose.Schema.Types.ObjectId, ref: "Post", index: true },
-  type: { type: String, default: '' },
+  postId: { type: mongoose.Schema.Types.ObjectId, ref: 'Post', index: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', index: true },
+  type: { type: String, default: '', enum: ['like', 'love', 'happy', 'wow', 'sad', 'angry'] },
   username: { type: String, default: '' },
   profilePicture: { type: String, default: '' },
   avatarColor: { type: String, default: '' },
-  createdAt: { type: Date, default: Date.now },
+  createdAt: { type: Date, default: Date.now }
 });
 
-const ReactionModel: Model<IReactionDocument> = model<IReactionDocument>("Reaction", reactionSchema, "Reaction");
+// 🔒 Unique Compound Index:
+reactionSchema.index({ postId: 1, userId: 1 }, { unique: true });
+
+const ReactionModel: Model<IReactionDocument> = model<IReactionDocument>('Reaction', reactionSchema, 'Reaction');
 export { ReactionModel };

@@ -6,7 +6,7 @@ const SALT_ROUND = 10;
 
 const authSchema: Schema = new Schema(
   {
-    username: { type: String },
+    username: { type: String, index: true },
     uId: { type: String },
     email: { type: String },
     password: { type: String },
@@ -14,6 +14,7 @@ const authSchema: Schema = new Schema(
     createdAt: { type: Date,  default: Date.now },
     passwordResetToken: { type: String, default: '' },
     passwordResetExpires: { type: Number },
+    tokenVersion: { type: Number, default: 0 },
   },
   {
     toJSON: {

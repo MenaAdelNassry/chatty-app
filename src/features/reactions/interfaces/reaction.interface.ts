@@ -3,14 +3,14 @@ import { Document } from 'mongoose';
 
 export interface IReactionDocument extends Document {
   _id: string | ObjectId;
+  userId: string;
   username: string;
-  avataColor: string;
+  avatarColor: string;
   type: string;
   postId: string;
   profilePicture: string;
   createdAt?: Date;
   userTo?: string | ObjectId;
-  comment?: string;
 }
 
 export interface IReactions {
@@ -26,6 +26,7 @@ export interface IReactionJob {
   postId: string;
   username: string;
   previousReaction: string;
+  userId?: string;
   userTo?: string;
   userFrom?: string;
   type?: string;

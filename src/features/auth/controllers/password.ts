@@ -9,31 +9,31 @@ import { emailQueue } from "@service/queues/email.queue";
 import { forgotPasswordTemplate } from "@service/emails/templates/forgot-password/forgot-password-template";
 import { resetPasswordTemplate } from '@service/emails/templates/reset-password/reset-password-template';
 import { IResetPasswordParams } from '@user/interfaces/user.interface';
-import publicIP from 'ip';
 import moment from 'moment';
 
 class Password {
   public create = async (req: Request, res: Response) : Promise<void> => {
-    // ----------------- Apply Validation -----------------
+    // Apply Validation
     const { value, error } = emailSchema.validate(req.body);
     if(error?.details) {
       throw new joiRequestValidationError(error.details[0].message.replace(/"/g, ''));
     }
 
-    // ----------------- Check If email Existed -----------------
+    // Check If email Existed
     const { email } = value;
     const existingUser = await authService.getAuthUserByEmail(email);
 
     if(!existingUser) {
-      throw new BadRequestError("Invalid credentials");
+      res.status(HTTP_STATUS.OK).json({ message: "Password reset email sent." });
+      return;
     }
 
-    // ----------------- Give user a new token  -----------------
+    // Give user a new token
     const randomBytes: Buffer = crypto.randomBytes(20);
     const randomCharacters: string = randomBytes.toString("hex");
     await authService.updatePasswordToken(`${existingUser._id}`, randomCharacters, Date.now() + 10 * 60 * 1000) // 10 minutes
 
-    // ----------------- Add email job to queue  -----------------
+    // Add email job to queue
     const resetLink = `${config.CLIENT_URL}/reset-password?token=${randomCharacters}&userId=${existingUser._id}`;
     const template = forgotPasswordTemplate.passwordResetTemplate(existingUser.username, resetLink);
 
@@ -43,18 +43,18 @@ class Password {
       subject: "Reset your password"
     });
 
-    // ----------------- Finally, The Response  -----------------
+    // Finally, The Response
     res.status(HTTP_STATUS.OK).json({ message: "Password reset email sent." });
   }
 
   public update = async (req: Request, res: Response): Promise<void> => {
-    // ----------------- Apply Validation -----------------
+    // Apply Validation
     const { value, error } = passwordSchema.validate(req.body);
     if(error?.details) {
       throw new joiRequestValidationError(error.details[0].message.replace(/"/g, ''));
     }
 
-    // ----------------- Confirmation from reset token -----------------
+    // Confirmation from reset token
     const { token, userId } = req.params;
     const existingUser = await authService.getAuthUserByPasswordToken(token, userId);
 
@@ -62,17 +62,19 @@ class Password {
       throw new BadRequestError('Invalid or expired password reset token');
     }
 
-    // ----------------- Change password in DB -----------------
+    // Change password in DB
     existingUser.password = value.password;
     existingUser.passwordResetExpires = undefined;
     existingUser.passwordResetToken = undefined;
+    existingUser.tokenVersion = (existingUser.tokenVersion ?? 0) + 1;
     await existingUser.save();
 
-    // ----------------- Add email job confirmation -----------------
+    // Add email job confirmation
+    const ip = req.headers['x-forwarded-for']?.toString() || req.socket.remoteAddress;
     const templateParams: IResetPasswordParams = {
       email: existingUser.email,
       username: existingUser.username,
-      ipaddress: publicIP.address(),
+      ipaddress: ip!,
       date: moment().format("DD/MM/YYYY HH:mm"),
     }
     const template = resetPasswordTemplate.passwordResetConfirmationTemplate(templateParams);
@@ -82,7 +84,7 @@ class Password {
       template,
     });
 
-    // ----------------- Finally, The Response  -----------------
+    // Finally, The Response
     res.status(HTTP_STATUS.OK).json({ message: "Password successfully updated." });
   }
 }

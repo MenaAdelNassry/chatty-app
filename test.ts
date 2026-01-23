@@ -1,4 +1,3 @@
-// TODO # Concurrency Control – Project Checklist
 
 // Use this checklist before shipping the project and when reviewing critical features.
 

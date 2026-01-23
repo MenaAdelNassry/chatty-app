@@ -8,7 +8,7 @@ class ImageQueue extends BaseQueue {
     this.processJob('addUserProfileImageToDB', 5, imageWorker.addUserProfileImageToDB);
     this.processJob('addBackgroundImageToDB', 5, imageWorker.addBackgroundImageToDB);
     this.processJob('addImageToDB', 5, imageWorker.addImageToDB);
-    this.processJob('removeImageFromDB', 5, imageWorker.removeImageFromDB);
+    this.processJob('removeImageFromCloudinary', 5, imageWorker.removeImageFromCloudinary);
   }
 
   public addImageJob(name: string, data: IFileImageJobData): void {

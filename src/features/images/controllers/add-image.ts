@@ -6,193 +6,160 @@ import { Request, Response } from 'express';
 import { config } from '@root/config';
 import { IUserDocument } from '@user/interfaces/user.interface';
 import { UserCache } from '@service/redis/user.cache';
-import { socketIOImageObject } from '@socket/image';
 import { imageQueue } from '@service/queues/image.queue';
 import HTTP_STATUS from 'http-status-codes';
 import { userService } from '@service/db/user.service';
 import { IBgUploadResponse } from '@image/interfaces/image.interface';
 import { Helpers } from '@global/helpers/helpers';
+import { socketIOUserObject } from '@socket/user';
 
 const userCache: UserCache = new UserCache();
 
 class Add {
-  // -------------------------------------------------------------------------
-  // TODO: ⚠️ IMAGE HISTORY LOSS (Technical Debt)
-  //
-  // Current Logic:
-  // We use `req.currentUser.userId` as the 'public_id' for Cloudinary uploads
-  // with `overwrite: true`.
-  //
-  // Problem:
-  // This overwrites the previous profile picture on Cloudinary.
-  // Even though we save a new document in the Image Collection (MongoDB),
-  // ALL previous profile image records in the DB will point to the NEW image
-  // (because they share the same public_id). The history is effectively lost.
-  //
-  // FUTURE FIX:
-  // Use a unique public_id for every upload (e.g., `${userId}_${Date.now()}`).
-  // This will preserve the history of profile pictures in the Gallery.
-  // -------------------------------------------------------------------------
+  // =========================================================
+  // 1. PROFILE IMAGE
+  // =========================================================
   public profileImage = async (req: Request, res: Response): Promise<void> => {
-    // -------------------------------------------------------------------------
-    // 1. VALIDATION
-    // Check if the request body contains a valid base64 image string.
-    // -------------------------------------------------------------------------
-    const { value, error } = addImageSchema.validate(req.body);
+    // A. Validation
+    const { error, value } = addImageSchema.validate(req.body);
     if (error?.details) {
       throw new joiRequestValidationError(error.details[0].message);
     }
 
-    // -------------------------------------------------------------------------
-    // 2. CLOUDINARY UPLOAD
-    // Upload the image to Cloudinary.
-    // We use the 'userId' as the public_id to ensure the user always has ONE
-    // consistent profile image ID (overwriting the old one).
-    // -------------------------------------------------------------------------
-    const { image } = value;
-    const result: UploadApiResponse = await uploadToCloudinary(image, {
-      public_id: req.currentUser!.userId,
-      invalidate: true,
-      overwrite: true
-    });
+    // B. Upload Logic (New or Existing)
+    const { image, existingPublicId, existingVersion } = value;
+    // Helper handles both cases (New Base64 OR Existing Gallery ID)
+    const { version, publicId, url } = await this.uploadImageHelper(image, existingPublicId, existingVersion);
 
-    // -------------------------------------------------------------------------
-    // 3. URL CONSTRUCTION
-    // Build the new image URL using the version returned from Cloudinary.
-    // -------------------------------------------------------------------------
-    const url = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${result.version}/${req.currentUser!.userId}`;
-
-    // -------------------------------------------------------------------------
-    // 4. CACHE UPDATE (With Fallback Strategy)
-    // Try to update the 'profilePicture' field in Redis.
-    // If the user is not in the cache (null), fetch the full user from MongoDB
-    // and manually update the profile picture property for the response/socket.
-    // -------------------------------------------------------------------------
-    let cachedUser: IUserDocument | null = await userCache.updateUserItemsInCache(req.currentUser!.userId, {
+    // C. Update Redis Cache ⚡
+    let cachedUser: IUserDocument | null = (await userCache.updateUserItemsInCache(req.currentUser!.userId, {
       profilePicture: url
-    });
+    })) as IUserDocument;
+
+    // D. Fallback & Cache Repair 🛡️
+    // If cache was empty/evicted, fetch from DB and Repair fully
     if (!cachedUser) {
-      cachedUser = await userService.getUserById(req.currentUser!.userId);
-      // Manually update the returned object to reflect the new image immediately
-      if (cachedUser) {
-        cachedUser.profilePicture = url;
-      }
+      cachedUser = await this.repairUserCache(req.currentUser!.userId, { profilePicture: url });
     }
 
-    // -------------------------------------------------------------------------
-    // 5. SOCKET IO EMIT
-    // Notify the frontend to update the UI immediately without refreshing.
-    // -------------------------------------------------------------------------
-    socketIOImageObject.emit('update user', cachedUser);
+    // E. Socket Emit (Real-time Sync) 📡
+    // Sending full user object ensures consistency across devices
+    if (cachedUser) {
+      socketIOUserObject.to(`user:${req.currentUser!.userId}`).emit('update user', cachedUser);
+    }
 
-    // -------------------------------------------------------------------------
-    // 6. BACKGROUND JOB (Queue)
-    // Add a job to the queue to persist changes in MongoDB:
-    // - Update User Model (profilePicture field).
-    // - Create a new document in Image Model (for the gallery history).
-    // -------------------------------------------------------------------------
+    // F. DB Persistence (Queue) 💾
     imageQueue.addImageJob('addUserProfileImageToDB', {
       key: req.currentUser!.userId,
       value: url,
-      publicId: result.public_id,
-      version: result.version.toString()
+      publicId,
+      version,
+      newImage: image ? true : false
     });
 
-    // -------------------------------------------------------------------------
-    // 7. RESPONSE
-    // -------------------------------------------------------------------------
-    res.status(HTTP_STATUS.OK).json({ message: 'Image added successfully' });
+    res.status(HTTP_STATUS.OK).json({ message: 'Profile image added successfully', url });
   };
 
+  // =========================================================
+  // 2. BACKGROUND IMAGE
+  // =========================================================
   public backgroundImage = async (req: Request, res: Response): Promise<void> => {
-    // -------------------------------------------------------------------------
-    // 1. VALIDATION
-    // Validate the request body to ensure the image string is provided.
-    // -------------------------------------------------------------------------
-    const { value, error } = addImageSchema.validate(req.body);
+    // A. Validation
+    const { error, value } = addImageSchema.validate(req.body);
     if (error?.details) {
       throw new joiRequestValidationError(error.details[0].message);
     }
 
-    // -------------------------------------------------------------------------
-    // 2. IMAGE UPLOAD / PARSING
-    // Determine if the image is new (Base64) or existing (URL).
-    // If Base64 -> Upload to Cloudinary and get new ID/Version.
-    // If URL -> Parse the URL to extract ID/Version.
-    // -------------------------------------------------------------------------
-    const { image } = value;
-    const { version, publicId }: IBgUploadResponse = await this.backgroundUpload(image);
+    // B. Upload Logic
+    const { image, existingPublicId, existingVersion } = value;
+    const { version, publicId, url } = await this.uploadImageHelper(image, existingPublicId, existingVersion);
 
-    // -------------------------------------------------------------------------
-    // 3. CACHE UPDATE (With Fallback Strategy)
-    // Update 'bgImageId' and 'bgImageVersion' in Redis.
-    // Fallback: If cache is empty (null), fetch user from DB and manually
-    // update the fields in the retrieved object for the response.
-    // -------------------------------------------------------------------------
-    let response: IUserDocument | null = await userCache.updateUserItemsInCache(req.currentUser!.userId, {
+    // C. Update Redis Cache ⚡
+    // Update ID And Version
+    let cachedUser: IUserDocument | null = (await userCache.updateUserItemsInCache(req.currentUser!.userId, {
       bgImageId: publicId,
       bgImageVersion: version
-    });
+    })) as IUserDocument;
 
-    if (!response) {
-      response = await userService.getUserById(req.currentUser!.userId);
-      response.bgImageId = publicId;
-      response.bgImageVersion = version;
+    // D. Fallback & Cache Repair 🛡️
+    if (!cachedUser) {
+      cachedUser = await this.repairUserCache(req.currentUser!.userId, {
+        bgImageId: publicId,
+        bgImageVersion: version
+      });
     }
 
-    // -------------------------------------------------------------------------
-    // 4. SOCKET IO EMIT
-    // Notify frontend with the full updated user object.
-    // -------------------------------------------------------------------------
-    socketIOImageObject.emit('update user', response);
+    // E. Socket Emit 📡
+    if (cachedUser) {
+      socketIOUserObject.to(`user:${req.currentUser!.userId}`).emit('update user', {
+        ...cachedUser,
+        bgImageUrl: url // Optional: helpful for frontend
+      });
+    }
 
-    // -------------------------------------------------------------------------
-    // 5. BACKGROUND JOB (Queue)
-    // Add job to persist changes in MongoDB (User Collection & Image Collection).
-    // -------------------------------------------------------------------------
+    // F. DB Persistence (Queue) 💾
     imageQueue.addImageJob('addBackgroundImageToDB', {
       key: req.currentUser!.userId,
       publicId,
-      version
+      version,
+      newImage: image ? true : false
     });
 
-    // -------------------------------------------------------------------------
-    // 6. RESPONSE
-    // -------------------------------------------------------------------------
-    res.status(HTTP_STATUS.OK).json({ message: 'Image added successfully' });
+    res.status(HTTP_STATUS.OK).json({ message: 'Background image added successfully' });
   };
 
-  private backgroundUpload = async (image: string): Promise<IBgUploadResponse> => {
-    const isBase64 = Helpers.isBase64(image);
+  // =========================================================
+  // 🔒 PRIVATE HELPERS
+  // =========================================================
+
+  /**
+   * General Helper for Uploads
+   * Handles: New Base64 Upload OR Existing Gallery Reference
+   */
+  private uploadImageHelper = async (image: string, existingPublicId: string, existingVersion: string): Promise<IBgUploadResponse> => {
+    const isBase64 = image ? Helpers.isBase64(image) : false;
     let version = '';
     let publicId = '';
+    let url = '';
 
     if (isBase64) {
-      const result: UploadApiResponse = await uploadToCloudinary(image);
+      // ✅ Case 1: New Image Upload (Unique ID generated by Cloudinary)
+      const result: UploadApiResponse = await uploadToCloudinary(image, {
+        overwrite: false, // Important for Gallery
+        invalidate: true
+      });
 
       version = result.version.toString();
       publicId = result.public_id;
+      url = result.secure_url;
     } else {
-      // -------------------------------------------------------------------------
-      // TODO: ⚠️ FRAGILE URL PARSING (Bug Risk)
-      //
-      // Current Logic:
-      // We extract 'version' and 'publicId' by splitting the URL string.
-      //
-      // Problem:
-      // This logic breaks if the Cloudinary URL structure changes (e.g., using folders).
-      // Relying on array indices [length-1] and [length-2] is risky.
-      //
-      // FUTURE FIX:
-      // The frontend should send 'bgImageId' and 'bgImageVersion' explicitly
-      // in the request body when reusing an existing image, instead of sending the full URL.
-      // -------------------------------------------------------------------------
-      const value = image.split('/');
-      version = value[value.length - 2].slice(1);
-      publicId = value[value.length - 1];
+      // ✅ Case 2: Using Existing Image from Gallery
+      publicId = existingPublicId;
+      version = existingVersion;
+      url = `https://res.cloudinary.com/${config.CLOUD_NAME}/image/upload/v${version}/${publicId}`;
     }
 
-    return { publicId, version };
+    return { publicId, version, url };
+  };
+
+  /**
+   * Cache Repair Strategy
+   * Fetches from DB, Updates local fields, and Saves fully to Redis (ZADD + HSET)
+   */
+  private repairUserCache = async (userId: string, updates: Partial<IUserDocument>): Promise<IUserDocument | null> => {
+    const userFromDb = await userService.getUserById(userId);
+    if (!userFromDb) return null;
+
+    // Update the fetched object with the new image data before caching
+    for (const [key, value] of Object.entries(updates)) {
+      // @ts-ignore
+      userFromDb[key] = value;
+    }
+
+    // Full Save (ZADD + HSET) -> This is the "Repair" magic
+    await userCache.saveUserToCache(`${userFromDb._id}`, `${userFromDb.uId}`, userFromDb);
+
+    return userFromDb;
   };
 }
 

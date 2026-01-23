@@ -17,6 +17,8 @@ export interface AuthPayload {
   username: string;
   avatarColor: string;
   iat?: number;
+  profilePicture: string;
+  tokenVersion?: number;
 }
 
 export interface IAuthDocument extends Document {
@@ -29,6 +31,7 @@ export interface IAuthDocument extends Document {
   createdAt: Date,
   passwordResetToken?: string,
   passwordResetExpires?: number | string;
+  tokenVersion?: number;
   comparePassword(password: string): Promise<boolean>;
   hashPassword(password: string): Promise<string>;
 }
