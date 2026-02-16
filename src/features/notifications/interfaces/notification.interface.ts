@@ -16,6 +16,7 @@ export interface INotificationDocument extends Document {
   gifUrl: string;
   read?: boolean;
   createdAt: Date;
+  isFollowing?: boolean;
 }
 
 export interface INotification {
@@ -50,6 +51,8 @@ export interface INotificationJobData {
   gifUrl?: string;
   reaction?: string;
   deleteBlockInteraction?: boolean;
+  userId?: string;
+  postId?: string;
 }
 
 export interface INotificationTemplate {

@@ -20,6 +20,10 @@ class Config {
     public SENDGRID_API_KEY: string | undefined;
     public SENDGRID_SENDER: string | undefined;
     public EC2_URL: string | undefined;
+    public GOOGLE_CONSOLE_CLOUD_CLIENT_ID: string | undefined;
+    public GOOGLE_CONSOLE_CLOUD_CALLBACK_URL: string | undefined;
+    public GOOGLE_CONSOLE_CLOUD_CLIENT_SECRET: string | undefined;
+    public API_URL: string | undefined;
 
     private readonly DEFAULT_DATABASE_URL = "mongodb://127.0.0.1:27017/chatty-app";
 
@@ -39,6 +43,10 @@ class Config {
         this.SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
         this.SENDGRID_SENDER = process.env.SENDGRID_SENDER || "";
         this.EC2_URL = process.env.EC2_URL || "";
+        this.GOOGLE_CONSOLE_CLOUD_CLIENT_ID = process.env.GOOGLE_CONSOLE_CLOUD_CLIENT_ID || "";
+        this.GOOGLE_CONSOLE_CLOUD_CALLBACK_URL = process.env.GOOGLE_CONSOLE_CLOUD_CALLBACK_URL || "";
+        this.GOOGLE_CONSOLE_CLOUD_CLIENT_SECRET = process.env.GOOGLE_CONSOLE_CLOUD_CLIENT_SECRET || "";
+        this.API_URL = process.env.API_URL || "";
     }
 
     public validateConfig(): void {

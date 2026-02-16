@@ -1,6 +1,6 @@
-import { IAuthDocument } from "@auth/interfaces/auth.interface";
-import { compare, hash } from "bcryptjs";
-import { model, Model, Schema } from "mongoose";
+import { IAuthDocument } from '@auth/interfaces/auth.interface';
+import { compare, hash } from 'bcryptjs';
+import { model, Model, Schema } from 'mongoose';
 
 const SALT_ROUND = 10;
 
@@ -11,10 +11,10 @@ const authSchema: Schema = new Schema(
     email: { type: String },
     password: { type: String },
     avatarColor: { type: String },
-    createdAt: { type: Date,  default: Date.now },
-    passwordResetToken: { type: String, default: '' },
-    passwordResetExpires: { type: Number },
+    createdAt: { type: Date, default: Date.now },
     tokenVersion: { type: Number, default: 0 },
+    emailVerified: { type: Boolean, default: false },
+    googleId: { type: String, select: true },
   },
   {
     toJSON: {
@@ -26,7 +26,7 @@ const authSchema: Schema = new Schema(
   }
 );
 
-authSchema.pre("save", async function (this: IAuthDocument, next: () => void) {
+authSchema.pre('save', async function (this: IAuthDocument, next: () => void) {
   const hashedPassword = await hash(this.password as string, SALT_ROUND);
   this.password = hashedPassword;
   next();
@@ -35,11 +35,11 @@ authSchema.pre("save", async function (this: IAuthDocument, next: () => void) {
 authSchema.methods.comparePassword = async function (password: string): Promise<boolean> {
   const hashedPassword: string = this.password!;
   return compare(password, hashedPassword);
-}
+};
 
-authSchema.methods.hashPassword = async function(password: string): Promise<string> {
+authSchema.methods.hashPassword = async function (password: string): Promise<string> {
   return hash(password, SALT_ROUND);
-}
+};
 
 const AuthModel: Model<IAuthDocument> = model<IAuthDocument>('Auth', authSchema, 'Auth');
 export { AuthModel };

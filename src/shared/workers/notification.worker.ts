@@ -1,3 +1,4 @@
+import { ObjectId } from 'mongodb';
 import { DoneCallback, Job } from 'bull';
 import { config } from '@root/config';
 import Logger from 'bunyan';
@@ -7,32 +8,56 @@ import { userService } from '@service/db/user.service';
 import { NotificationModel } from '@notification/models/notification.model';
 import { socketIONotificationObject } from '@socket/notification';
 import { emailQueue } from '@service/queues/email.queue';
-import { notificationTemplate } from '@service/emails/templates/notifications/notification-template';
 import { INotificationSettings } from '@user/interfaces/user.interface';
 import { NotificationSystemHelper } from '@global/helpers/notification.helper';
+import { NotFoundError } from '@global/helpers/error-handler';
 
 const log: Logger = config.createLogger('notificationWorker');
 const usercache: UserCache = new UserCache();
 type NotificationType = keyof INotificationSettings;
 
 class NotificationWorker {
-  async updateNotification(job: Job, done: DoneCallback): Promise<void> {
+  updateNotification = async (job: Job, done: DoneCallback): Promise<void> => {
     try {
-      const { key } = job.data;
-      await notificationService.updateNotification(key);
+      const { createdItemId, key, reaction, userId } = job.data;
+
+      // Mark as read
+      if (key) {
+        await notificationService.updateNotification(key);
+      }
+
+      // Mark All as read
+      else if(userId) {
+        await notificationService.markAllNotificationsAsRead(userId);
+      }
+
+      // Handle Update Reaction Case
+      else if (createdItemId && reaction) {
+        // Update first
+        await NotificationModel.updateOne({ createdItemId }, { createdAt: new Date().toISOString(), reaction, read: false });
+
+        // Then aggregate with population
+        const [notification] = await NotificationModel.aggregate([
+          { $match: { createdItemId: new ObjectId(createdItemId) } },
+          ...this.aggregateProject()
+        ]);
+
+        socketIONotificationObject.emit('update notification', { notification }, { userTo: `${notification.userTo}` });
+      }
+
       job.progress(100);
       done(null, job.data);
     } catch (err) {
       log.error(err);
       done(err as Error);
     }
-  }
+  };
 
   async deleteNotification(job: Job, done: DoneCallback): Promise<void> {
     try {
-      const { key, userFrom, userTo, notificationType, deleteBlockInteraction } = job.data;
+      const { key, userFrom, userTo, deleteBlockInteraction, createdItemId } = job.data;
 
-      // Senario 1
+      // Senario 1 (for blocking)
       if (deleteBlockInteraction && userFrom && userTo) {
         // 1. DB Cleanup
         await notificationService.deleteNotificationsBetweenUsers(userFrom, userTo);
@@ -42,16 +67,18 @@ class NotificationWorker {
         socketIONotificationObject.emit('delete notification', { userFrom: userFrom }, { userTo: userTo });
       }
 
-      // Senario 2
-      else if (userFrom && userTo && notificationType) {
-        await notificationService.deleteNotificationByIDs(userFrom, userTo, notificationType);
-        socketIONotificationObject.emit('delete notification', { userTo, userFrom, notificationType }, { userTo });
+      // Senario 2 for (comments | reactions | follows)
+      else if (createdItemId) {
+        const notification = await NotificationModel.findOneAndDelete({ createdItemId });
+
+        if (notification) {
+          socketIONotificationObject.emit('delete notification', { notification }, { userTo: `${notification.userTo}` });
+        }
       }
 
-      // Senario 3
+      // Senario 3 for (usual button for delete notification)
       else if (key) {
         await NotificationModel.deleteOne({ _id: key });
-        socketIONotificationObject.emit('delete notification', { _id: key }, { userTo });
       }
 
       job.progress(100);
@@ -76,17 +103,11 @@ class NotificationWorker {
     if (!userFromData) userFromData = await userService.getUserById(userFrom);
 
     if (!userToData || !userFromData) {
-      done(new Error('User not found'));
+      done(new NotFoundError('User not found'));
       return;
     }
 
-    // 2. Check Notification Settings 🛡️
-    if (!userToData.notifications[notificationType]) {
-      done(null, job.data);
-      return;
-    }
-
-    // 3. Create Notification in MongoDB 💾
+    // 2. Create Notification in MongoDB 💾
     const notificationModel = new NotificationModel({
       userFrom,
       userTo,
@@ -101,41 +122,77 @@ class NotificationWorker {
       imgVersion: imgVersion || '',
       gifUrl: gifUrl || '',
       reaction: reaction || '',
-      read: false
+      read: false,
     });
     await notificationModel.save();
 
-    // 4. Send Socket Event (Optimized) ⚡
+    // 3. Send Socket Event (Optimized) ⚡
     const notificationSocketData = {
       ...notificationModel.toJSON(),
       userFrom: {
         username: userFromData.username,
         profilePicture: userFromData.profilePicture,
         avatarColor: userFromData.avatarColor,
-        uId: userFromData.uId
+        _id: userFromData._id
       }
     };
 
     socketIONotificationObject.emit('insert notification', notificationSocketData, { userTo });
 
+    // 4. Check Notification Settings 🛡️
+    if (!userToData.notifications[notificationType]) {
+      done(null, job.data);
+      return;
+    }
+
     // 5. Send Email
     const { subject, header } = NotificationSystemHelper.getEmailMetadata(notificationType, userFromData.username!);
-    const templateParams = {
-      username: userToData.username!,
-      message,
-      header
-    };
-
-    const template = notificationTemplate.notificationTemplate(templateParams);
-
-    emailQueue.addEmailJob('followersEmail', {
+    emailQueue.addNotificationEmail(notificationType, {
       receiverEmail: userToData.email!,
-      template,
-      subject
+      subject,
+      username: userToData.username!,
+      header,
+      message
     });
 
     job.progress(100);
     done(null, job.data);
+  }
+
+  // ---------------------------------------------------------
+  // 🔒 Private Methods (Helpers)
+  // ---------------------------------------------------------
+  private aggregateProject(): any[] {
+    return [
+      { $lookup: { from: 'User', localField: 'userFrom', foreignField: '_id', as: 'userFrom' } },
+      { $unwind: '$userFrom' },
+      { $lookup: { from: 'Auth', localField: 'userFrom.authId', foreignField: '_id', as: 'authId' } },
+      { $unwind: '$authId' },
+      {
+        $project: {
+          _id: 1,
+          message: 1,
+          comment: 1,
+          createdAt: 1,
+          createdItemId: 1,
+          entityId: 1,
+          notificationType: 1,
+          gifUrl: 1,
+          imgId: 1,
+          imgVersion: 1,
+          post: 1,
+          reaction: 1,
+          read: 1,
+          userTo: 1,
+          userFrom: {
+            _id: '$userFrom._id',
+            profilePicture: '$userFrom.profilePicture',
+            username: '$authId.username',
+            avatarColor: '$authId.avatarColor'
+          }
+        }
+      }
+    ];
   }
 }
 

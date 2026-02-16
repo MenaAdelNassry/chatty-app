@@ -5,6 +5,12 @@ import HTTP_STATUS from 'http-status-codes';
 import { objectIdSchema } from '@global/helpers/joi.schema';
 import { BadRequestError } from '@global/helpers/error-handler';
 import { followerService } from '@service/db/follower.service';
+import { IUserDocument } from '@user/interfaces/user.interface';
+import { UserCache } from '@service/redis/user.cache';
+import { userService } from '@service/db/user.service';
+import { IFollowerData } from '@follower/interfaces/follower.interface';
+
+const userCache: UserCache = new UserCache();
 
 class Add {
   public follower = async (req: Request, res: Response): Promise<void> => {
@@ -24,8 +30,27 @@ class Add {
       followerDocumentId.toString()
     );
 
+    const cachedUser: IUserDocument | null = await userCache.getUserFromCache(followeeId);
+    let user = cachedUser;
+
+    if (!user) {
+      user = await userService.getUserById(followeeId);
+      userCache.saveUserToCache(followeeId, user.uId!, user);
+    }
+
+    const followerData: IFollowerData = {
+      avatarColor: user.avatarColor!,
+      followersCount: user.followersCount,
+      followingCount: user.followingCount,
+      profilePicture: user.profilePicture,
+      postsCount: user.postsCount,
+      username: user.username!,
+      uId: user.uId!,
+      _id: new ObjectId(followeeId)
+    }
+
     // 3. Response 🚀
-    res.status(HTTP_STATUS.OK).json({ message: 'Following user now' });
+    res.status(HTTP_STATUS.OK).json({ follower: followerData, message: 'Following user now' });
   };
 }
 

@@ -3,9 +3,6 @@ import { Request, Response } from 'express';
 import { basicInfoSchema, changePasswordSchema, notificationSettingsSchema, socialLinksSchema } from '@user/schemes/info';
 import { joiRequestValidationError } from '@global/helpers/error-handler';
 import { userService } from '@service/db/user.service';
-import { IResetPasswordParams } from '@user/interfaces/user.interface';
-import moment from 'moment';
-import { resetPasswordTemplate } from '@service/emails/templates/reset-password/reset-password-template';
 import { emailQueue } from '@service/queues/email.queue';
 import { UserCache } from '@service/redis/user.cache';
 import { userQueue } from '@service/queues/user.queue';
@@ -30,14 +27,7 @@ class Update {
     const ip = req.headers['x-forwarded-for']?.toString() || req.socket.remoteAddress;
 
     // C. Send Confirmation Email (Async via Queue)
-    const templateParams: IResetPasswordParams = {
-      username,
-      email,
-      ipaddress: ip!,
-      date: moment().format('DD/MM/YYYY HH:mm')
-    };
-    const template: string = resetPasswordTemplate.passwordResetConfirmationTemplate(templateParams);
-    emailQueue.addEmailJob('changePassword', { template, receiverEmail: email, subject: 'Password update confirmation' });
+    emailQueue.addEmailJob('changePassword', { receiverEmail: email, subject: 'Password update confirmation', username, ip });
 
     // D. Logout / Session Invalidation 🚪
     req.session = null;

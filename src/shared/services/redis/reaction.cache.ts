@@ -73,7 +73,6 @@ export class ReactionCache extends BaseCache {
 
       let postReactions = post.reactions ? { ...post.reactions } : { like: 0, love: 0, happy: 0, wow: 0, sad: 0, angry: 0 };
       this.updateReactionCount(postReactions, previousReaction, -1);
-      console.log(postReactions);
 
       const multi = this.client.multi();
 

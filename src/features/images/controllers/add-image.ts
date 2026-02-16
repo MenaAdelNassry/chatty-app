@@ -105,7 +105,7 @@ class Add {
       newImage: image ? true : false
     });
 
-    res.status(HTTP_STATUS.OK).json({ message: 'Background image added successfully' });
+    res.status(HTTP_STATUS.OK).json({ message: 'Background image added successfully', url });
   };
 
   // =========================================================

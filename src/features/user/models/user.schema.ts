@@ -1,4 +1,4 @@
-import { IUserDocument } from '@user/interfaces/user.interface';
+import { IUserDocument, UserRole } from '@user/interfaces/user.interface';
 import mongoose, { model, Model, Schema } from 'mongoose';
 
 const userSchema: Schema = new Schema({
@@ -24,7 +24,17 @@ const userSchema: Schema = new Schema({
   location: { type: String, default: '' },
   quote: { type: String, default: '' },
   bgImageVersion: { type: String, default: '' },
-  bgImageId: { type: String, default: '' }
+  bgImageId: { type: String, default: '' },
+  emailVerified: { type: Boolean, default: false },
+  role: {
+    type: String,
+    enum: Object.values(UserRole),
+    default: UserRole.USER
+  },
+  freezedAt: { type: Date, default: null },
+  freezedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  restoredAt: { type: Date, default: null },
+  restoredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 });
 
 const UserModel: Model<IUserDocument> = model<IUserDocument>('User', userSchema, 'User');

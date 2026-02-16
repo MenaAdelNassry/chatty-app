@@ -4,7 +4,7 @@ import { UserCache } from '@service/redis/user.cache';
 import { userService } from '@service/db/user.service';
 import { FollowerCache } from '@service/redis/follower.cache';
 import { IUserDocument } from '@user/interfaces/user.interface';
-import { BadRequestError } from '@global/helpers/error-handler';
+import { BadRequestError, NotFoundError } from '@global/helpers/error-handler';
 import { followerService } from '@service/db/follower.service';
 import { blockUserService } from '@service/db/block-user.service';
 
@@ -29,7 +29,7 @@ class Get {
   // 2. Get Other User Profile by ID 🛡️
   public async profileByUserId(req: Request, res: Response): Promise<void> {
     const { userId } = req.params;
-    const { userId: myId, uId } = req.currentUser!;
+    const { userId: myId } = req.currentUser!;
 
     const [isUserBlockedMe, isUserBlocked] = await Promise.all([
       followerCache.isUserBlockedBy(myId, userId),
@@ -40,18 +40,19 @@ class Get {
 
     // A. Try Cache First
     const cachedUser: IUserDocument | null = await userCache.getUserFromCache(userId);
-
-    if (cachedUser) {
-      res.status(HTTP_STATUS.OK).json({ message: 'User profile', user: cachedUser });
-      return;
-    }
-
-    // B. Fallback to DB
-    const existingUser: IUserDocument | null = await userService.getUserById(userId);
-    await userCache.saveUserToCache(userId, existingUser.uId!, existingUser);
+    let existingUser = cachedUser;
 
     if (!existingUser) {
-      throw new BadRequestError('User not found');
+      // B. Fallback to DB
+      existingUser = await userService.getUserById(userId, myId);
+      await userCache.saveUserToCache(userId, existingUser.uId!, existingUser);
+    } else {
+      const isFollowing = await followerCache.isUserFollowing(myId, userId);
+      existingUser.isFollowing = isFollowing; // Inject Property
+    }
+
+    if (!existingUser || existingUser.freezedAt || !existingUser.emailVerified) {
+      throw new NotFoundError('User not found');
     }
 
     res.status(HTTP_STATUS.OK).json({ message: 'User profile', user: existingUser });
@@ -73,7 +74,7 @@ class Get {
 
     excludeIds.push(...followingIds, ...dbBlockIds);
 
-    const users: IUserDocument[] = await userService.getRandomUsersFromDB(excludeIds);
+    const users: IUserDocument[] = await userService.getRandomUsersFromDB(excludeIds, followingIds);
 
     res.status(HTTP_STATUS.OK).json({ message: 'User suggestions', users });
   }

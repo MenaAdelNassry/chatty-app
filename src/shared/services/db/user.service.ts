@@ -1,7 +1,6 @@
 import { IBasicInfo, INotificationSettings, ISearchUser, ISocialLinks, IUserDocument } from '@user/interfaces/user.interface';
 import { UserModel } from '@user/models/user.schema';
 import mongoose from 'mongoose';
-import { followerService } from './follower.service';
 import { AuthModel } from '@auth/models/auth.schema';
 import { IAuthDocument } from '@auth/interfaces/auth.interface';
 import { BadRequestError } from '@global/helpers/error-handler';
@@ -24,21 +23,52 @@ class UserService {
     return users[0];
   }
 
-  public async getUserById(userId: string): Promise<IUserDocument> {
+  public async getUserById(userId: string, viewerId?: string): Promise<IUserDocument> {
     const aggregate: any[] = [
       { $match: { _id: new mongoose.Types.ObjectId(userId) } },
       { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-      { $project: this.aggregateProject() }
+      { $unwind: '$authId' }
     ];
 
-    const users: IUserDocument[] = await UserModel.aggregate(aggregate);
+    if (viewerId) {
+      const viewerObjectId = new mongoose.Types.ObjectId(viewerId);
+      aggregate.push(
+        {
+          $lookup: {
+            from: 'Follower',
+            let: { targetUserId: '$_id' },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [{ $eq: ['$followerId', viewerObjectId] }, { $eq: ['$followeeId', '$$targetUserId'] }]
+                  }
+                }
+              }
+            ],
+            as: 'isFollowingDoc'
+          }
+        },
+        {
+          $addFields: {
+            isFollowing: { $gt: [{ $size: '$isFollowingDoc' }, 0] }
+          }
+        }
+      );
+    }
 
+    aggregate.push({ $project: this.aggregateProject(!!viewerId) });
+
+    const users: IUserDocument[] = await UserModel.aggregate(aggregate);
     return users[0];
   }
 
   public async countUsersInDB(): Promise<number> {
-    const totalCount: number = await UserModel.find({}).countDocuments();
+    const totalCount: number = await UserModel.countDocuments({
+      freezedAt: null,
+      emailVerified: true
+    });
+
     return totalCount;
   }
 
@@ -46,19 +76,70 @@ class UserService {
     await UserModel.updateOne({ _id: userId, bgImageId: imageId }, { $set: { bgImageId: '', bgImageVersion: '' } });
   }
 
-  public async getRandomUsersFromDB(excludeIds: string[]): Promise<IUserDocument[]> {
+  public async getRandomUsersFromDB(excludeIds: string[], myFollowingIds: string[]): Promise<IUserDocument[]> {
+    const myFollowingObjectIds = myFollowingIds.map((id) => new mongoose.Types.ObjectId(id));
+
     const users: IUserDocument[] = await UserModel.aggregate([
-      // 1. Filter Out Excluded IDs ($nin = Not In)
+      // 1. Match & Sample
+      { $match: { _id: { $nin: excludeIds.map((id) => new mongoose.Types.ObjectId(id)) }, freezedAt: null, emailVerified: true } },
+      { $sample: { size: 20 } },
+
+      // 2. Lookup Auth
+      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
+      { $unwind: '$authId' },
+
+      // 🔥 3. Smart Mutual Followers Logic (using $facet) 🔥
       {
-        $match: {
-          _id: {
-            $nin: excludeIds.map((id) => new mongoose.Types.ObjectId(id)) // Convert Strings to ObjectIds
+        $lookup: {
+          from: 'Follower',
+          let: { candidateId: '$_id' },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [{ $eq: ['$followeeId', '$$candidateId'] }, { $in: ['$followerId', myFollowingObjectIds] }]
+                }
+              }
+            },
+            // facet
+            {
+              $facet: {
+                count: [{ $count: 'total' }],
+                samples: [
+                  { $limit: 2 },
+                  { $lookup: { from: 'User', localField: 'followerId', foreignField: '_id', as: 'user' } },
+                  { $unwind: '$user' },
+                  { $lookup: { from: 'Auth', localField: 'user.authId', foreignField: '_id', as: 'auth' } },
+                  { $unwind: '$auth' },
+                  {
+                    $project: {
+                      _id: '$user._id',
+                      username: '$auth.username',
+                      avatarColor: '$auth.avatarColor',
+                      profilePicture: '$user.profilePicture'
+                    }
+                  }
+                ]
+              }
+            }
+          ],
+          as: 'mutualData'
+        }
+      },
+
+      // 4. Unwind & Format
+      { $unwind: '$mutualData' },
+
+      {
+        $addFields: {
+          mutualFollowers: '$mutualData.samples',
+          mutualFollowersCount: {
+            $ifNull: [{ $arrayElemAt: ['$mutualData.count.total', 0] }, 0]
           }
         }
       },
-      // 2. Random Sampling (Select 12 random users)
-      { $sample: { size: 12 } },
-      // 3. Hide Sensitive Data (Privacy)
+
+      // 5. Project Final Shape
       { $project: this.aggregateProject() }
     ]);
 
@@ -113,112 +194,161 @@ class UserService {
     requestUserId: string,
     skip: number,
     limit: number
-  ): Promise<ISearchUser[]> {
+  ): Promise<{ users: ISearchUser[]; total: number }> {
     const regex = new RegExp(Helpers.escapeRegex(query), 'i');
-    const startWithRegex = new RegExp(`^${Helpers.escapeRegex(query)}`, 'i'); 
-
+    const startWithRegex = new RegExp(`^${Helpers.escapeRegex(query)}`, 'i');
     const myObjectId = new mongoose.Types.ObjectId(requestUserId);
 
-    const users: ISearchUser[] = await UserModel.aggregate([
-      // Stage 1: Lookup Auth
-      {
-        $lookup: {
-          from: 'Auth',
-          localField: 'authId',
-          foreignField: '_id',
-          as: 'authId'
-        }
-      },
-      { $unwind: '$authId' },
-
-      // Stage 2: Match
+    const result = await UserModel.aggregate([
+      // Stage 1: Pre-Filter
       {
         $match: {
-          'authId.username': { $regex: regex },
-          _id: { $nin: excludeIds.map((id) => new mongoose.Types.ObjectId(id)) }
+          _id: { $nin: excludeIds.map((id) => new mongoose.Types.ObjectId(id)) },
+          freezedAt: null,
+          emailVerified: true
         }
       },
 
-      // 🔥 Stage 3: Add Scoring Field
+      // Stage 2: Lookup Auth
+      { $lookup: { from: 'Auth', localField: 'authId', foreignField: '_id', as: 'authId' } },
+      { $unwind: '$authId' },
+
+      // Stage 3: Match Username
+      { $match: { 'authId.username': { $regex: regex } } },
+
+      // Stage 4: Scoring (Add isStartsWith)
       {
         $addFields: {
-          isStartsWith: {
-            $regexMatch: {
-              input: '$authId.username',
-              regex: startWithRegex
-            }
-          }
+          isStartsWith: { $regexMatch: { input: '$authId.username', regex: startWithRegex } }
         }
       },
 
-      // 🔥 Stage 4: Smart Sort
       {
-        $sort: {
-          isStartsWith: -1,
-          followersCount: -1,
-          _id: 1
-        }
-      },
-
-      // Stage 5: Pagination
-      { $skip: skip },
-      { $limit: limit },
-
-      // Stage 6: Lookup Following
-      {
-        $lookup: {
-          from: 'Follower',
-          let: { targetUserId: '$_id' },
-          pipeline: [
+        $facet: {
+          // (users)
+          users: [
+            { $sort: { isStartsWith: -1, followersCount: -1, _id: 1 } },
+            { $skip: skip },
+            { $limit: limit },
+            // Following Check Logic
             {
-              $match: {
-                $expr: {
-                  $and: [{ $eq: ['$followerId', myObjectId] }, { $eq: ['$followeeId', '$$targetUserId'] }]
-                }
+              $lookup: {
+                from: 'Follower',
+                let: { targetUserId: '$_id' },
+                pipeline: [
+                  {
+                    $match: {
+                      $expr: {
+                        $and: [{ $eq: ['$followerId', myObjectId] }, { $eq: ['$followeeId', '$$targetUserId'] }]
+                      }
+                    }
+                  }
+                ],
+                as: 'isFollowingDoc'
+              }
+            },
+            // Project Data
+            {
+              $project: {
+                _id: 1,
+                profilePicture: 1,
+                username: '$authId.username',
+                followersCount: 1,
+                uId: '$authId.uId',
+                avatarColor: '$authId.avatarColor',
+                following: { $gt: [{ $size: '$isFollowingDoc' }, 0] } // ✅ Following Logic
               }
             }
           ],
-          as: 'isFollowingDoc'
-        }
-      },
 
-      // Stage 7: Project
-      {
-        $project: {
-          _id: 1,
-          profilePicture: 1,
-          username: '$authId.username',
-          uId: '$authId.uId',
-          avatarColor: '$authId.avatarColor',
-          following: { $gt: [{ $size: '$isFollowingDoc' }, 0] }
+          total: [{ $count: 'count' }]
         }
       }
     ]);
 
-    return users;
+    const finalResult = result[0];
+
+    return {
+      users: finalResult.users,
+      total: finalResult.total[0] ? finalResult.total[0].count : 0
+    };
   }
 
-  private aggregateProject() {
-    return {
+  public async freezeAccount(userId: string, authId: string, freezedBy: string): Promise<void> {
+    // 1. Start Session (Transaction)
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
+    try {
+      // 2. Update User Document (Set freeze info)
+      await UserModel.updateOne(
+        { _id: userId },
+        {
+          $set: {
+            freezedAt: new Date(),
+            freezedBy: new mongoose.Types.ObjectId(freezedBy),
+            restoredAt: null,
+            restoredBy: null
+          }
+        },
+        { session }
+      );
+
+      // 3. Update Auth Document (Invalidate Tokens)
+      await AuthModel.updateOne({ _id: authId }, { $inc: { tokenVersion: 1 } }, { session });
+
+      // 4. Commit Transaction (Save changes)
+      await session.commitTransaction();
+    } catch (error) {
+      // 5. Rollback on Error
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      // 6. End Session
+      session.endSession();
+    }
+  }
+
+  public async unfreezeUser(userId: string, restoredBy: string): Promise<void> {
+    await UserModel.updateOne(
+      { _id: userId },
+      {
+        $set: {
+          freezedAt: null,
+          freezedBy: null,
+          restoredAt: new Date(),
+          restoredBy: new mongoose.Types.ObjectId(restoredBy)
+        }
+      }
+    );
+  }
+
+  private aggregateProject(includeFollowing: boolean = false) {
+    // Default value is false
+    const project: any = {
       _id: 1,
       username: '$authId.username',
       uId: '$authId.uId',
       email: '$authId.email',
       avatarColor: '$authId.avatarColor',
       createdAt: '$authId.createdAt',
-      postsCount: 1,
-      work: 1,
-      school: 1,
-      quote: 1,
-      location: 1,
-      followersCount: 1,
-      followingCount: 1,
-      notifications: 1,
-      social: 1,
-      bgImageVersion: 1,
-      bgImageId: 1,
-      profilePicture: 1
+      authId: '$authId._id',
+      tokenVersion: '$authId.tokenVersion',
+
+      mutualFollowers: 1,
+      mutualFollowersCount: 1
     };
+
+    if (includeFollowing) {
+      project['isFollowing'] = 1;
+    }
+
+    for (const key in UserModel.schema.paths) {
+      if (key !== '__v' && key !== 'authId' && key !== '_id' && key !== 'createdAt') {
+        project[key] = 1;
+      }
+    }
+    return project;
   }
 }
 

@@ -8,8 +8,8 @@ const log: Logger = config.createLogger("chatWorker");
 class ChatWorker {
   async addChatMessageToDB(job: Job, done: DoneCallback): Promise<void> {
     try {
-      const { data } = job;
-      await chatService.addMessageToDB(data);
+      const { message } = job.data;
+      await chatService.addMessageToDB(message);
       job.progress(100);
       done(null, job.data)
     } catch(err) {
@@ -20,8 +20,8 @@ class ChatWorker {
 
   async markMessageAsDeletedToDB(job: Job, done: DoneCallback): Promise<void> {
     try {
-      const { messageId, type } = job.data;
-      await chatService.markMessageAsDeleted(messageId, type);
+      const { messageId, type, senderId } = job.data;
+      await chatService.deleteMessage(messageId, senderId, type)
       job.progress(100);
       done(null, job.data)
     } catch(err) {
@@ -30,10 +30,22 @@ class ChatWorker {
     }
   }
 
-  async markMessageAsReadToDB(job: Job, done: DoneCallback): Promise<void> {
+  // async markMessageAsReadToDB(job: Job, done: DoneCallback): Promise<void> {
+  //   try {
+  //     const { conversationId, receiverId } = job.data;
+  //     await chatService.markMessageAsRead(receiverId, conversationId);
+  //     job.progress(100);
+  //     done(null, job.data)
+  //   } catch(err) {
+  //     log.error(err);
+  //     done(err as Error);
+  //   }
+  // }
+
+  async markMessageAsDelivered(job: Job, done: DoneCallback): Promise<void> {
     try {
-      const { conversationId, receiverId } = job.data;
-      await chatService.markMessageAsRead(conversationId, receiverId);
+      const { messageId, userId, conversationId } = job.data;
+      await chatService.markMessageAsDelivered(userId, conversationId, messageId);
       job.progress(100);
       done(null, job.data)
     } catch(err) {
@@ -44,8 +56,8 @@ class ChatWorker {
 
   async updateMessageReaction(job: Job, done: DoneCallback): Promise<void> {
     try {
-      const { messageId, senderName, reaction, type } = job.data;
-      await chatService.updateMessageReaction(messageId, senderName, reaction, type);
+      const { messageId, senderId, reaction } = job.data;
+      await chatService.updateMessageReaction(messageId, senderId, reaction);
       job.progress(100);
       done(null, job.data)
     } catch(err) {

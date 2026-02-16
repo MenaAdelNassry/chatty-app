@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Status Update</title>
+    <style>
+        /* ================= Base Styles ================= */
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7f6;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        .email-card {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            overflow: hidden;
+            text-align: center;
+            padding: 40px;
+        }
+        .logo-img {
+            width: 80px;
+            height: 80px;
+            margin-bottom: 20px;
+            object-fit: contain;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            margin-top: 0;
+        }
+        p {
+            color: #666666;
+            font-size: 16px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+        .warning-box {
+            padding: 15px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin: 25px 0;
+            text-align: left; /* لتحسين القراءة داخل الصندوق */
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-weight: bold;
+            margin-top: 10px;
+            text-decoration: none;
+            color: #ffffff !important;
+            transition: opacity 0.3s;
+        }
+        .btn:hover {
+            opacity: 0.9;
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #999999;
+            text-align: center;
+        }
+        .footer a {
+            color: #999999;
+            text-decoration: underline;
+        }
+
+        /* ================= State Specific Colors ================= */
+
+        /* 1. Self Deactivation (Neutral/Dark) */
+        .color-self { color: #333333; }
+        .warning-self { background-color: #fff3cd; border: 1px solid #ffeeba; color: #856404; }
+        .btn-self { background-color: #333333; }
+
+        /* 2. Admin Ban (Red/Danger) */
+        .color-ban { color: #d9534f; }
+        .warning-ban { background-color: #f8d7da; border: 1px solid #f5c6cb; color: #721c24; }
+        .btn-ban { background-color: #d9534f; }
+
+        /* 3. Admin Restore (Green/Success) */
+        .color-restore { color: #28a745; }
+        .warning-restore { background-color: #d4edda; border: 1px solid #c3e6cb; color: #155724; }
+        .btn-restore { background-color: #28a745; }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="email-card">
+            <img src="<%= image_url %>" alt="Status Icon" class="logo-img">
+
+            <% if (type === 'self') { %>
+                <h1 class="color-self">We're sorry to see you go, <%= username %></h1>
+                <p>Your account has been successfully deactivated upon your request.</p>
+
+                <div class="warning-box warning-self">
+                    <strong>Note:</strong> You have <strong><%= daysToKeep %> days</strong> to recover your account. Simply log in anytime within this period to reactivate it instantly. After that, your data will be permanently deleted.
+                </div>
+
+                <a href="<%= app_url %>" class="btn btn-self">Login to Reactivate</a>
+
+            <% } else if (type === 'ban') { %>
+                <h1 class="color-ban">Account Suspended</h1>
+                <p>Hello <%= username %>,</p>
+                <p>Your account has been suspended due to a violation of our Community Guidelines.</p>
+
+                <div class="warning-box warning-ban">
+                    <strong>Action Required:</strong> You cannot log in or access your profile at this time. If you believe this decision was made in error, please contact our support team.
+                </div>
+
+                <a href="<%= support_url %>" class="btn btn-ban">Contact Support</a>
+
+            <% } else if (type === 'restore') { %>
+                <h1 class="color-restore">Welcome Back, <%= username %>!</h1>
+                <p>Great news! Your account has been successfully reactivated.</p>
+
+                <div class="warning-box warning-restore">
+                    <strong>Status: Active & Verified</strong><br>
+                    You can now access your profile, posts, and followers immediately. No data was lost during the suspension.
+                </div>
+
+                <p>We are happy to have you back with us.</p>
+
+                <a href="<%= app_url %>" class="btn btn-restore">Go to My Feed</a>
+
+            <% } %>
+
+            </div>
+
+        <div class="footer">
+            <p>
+                Need help? <a href="<%= support_url %>">Contact Support</a>
+            </p>
+            <p>&copy; <%= new Date().getFullYear() %> SocialApp. All rights reserved.</p>
+        </div>
+    </div>
+
+</body>
+</html>

@@ -28,8 +28,11 @@ export interface IFollowerData {
   postsCount: number;
   username: string;
   uId: string;
+  bgImageId?: string;
+  bgImageVersion?: string;
   _id?: mongoose.Types.ObjectId;
   userProfile?: IUserDocument;
+  isFollowing?: boolean;
 }
 
 export interface IFollowerJobData {

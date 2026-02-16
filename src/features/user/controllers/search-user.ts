@@ -22,9 +22,9 @@ class Search {
     excludeIds.push(userId);
 
     // 3. Call Service with Pagination params 🔍
-    const users: ISearchUser[] = await userService.searchUsers(query, excludeIds, userId, skip, limit);
+    const {users, total} = await userService.searchUsers(query, excludeIds, userId, skip, limit);
 
-    res.status(HTTP_STATUS.OK).json({ message: 'Search results', users });
+    res.status(HTTP_STATUS.OK).json({ message: 'Search results', users, total });
   }
 }
 

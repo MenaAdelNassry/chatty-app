@@ -68,12 +68,12 @@ const updatePostSchema: ObjectSchema = Joi.object()
     ...basicFields,
     image: Joi.string().allow('').optional(),
     video: Joi.string().allow('').optional(),
-    gifUrl: Joi.string().uri().optional(),
+    gifUrl: Joi.string().allow('').uri().optional(),
   })
   .min(1)
   .messages({
     'object.min': 'You must provide at least one field to update'
   })
-  .oxor('image', 'video', 'gifUrl');;
+  .oxor('image', 'video', 'gifUrl');
 
 export { postSchema, postWithImageSchema, postWithVideoSchema, updatePostSchema };

@@ -1,94 +1,92 @@
-import mongoose, { Document } from 'mongoose';
-import { AuthPayload } from '@auth/interfaces/auth.interface';
-import { IReaction } from '@reaction/interfaces/reaction.interface';
+import mongoose, { Document, ObjectId } from 'mongoose';
+import { MessageType } from '@chat/interfaces/conversation.interface';
+
+export enum MessageReactionType {
+  LIKE = 'like',
+  LOVE = 'love',
+  HAPPY = 'happy',
+  SAD = 'sad',
+  WOW = 'wow',
+  ANGRY = 'angry'
+}
+
+export const MessageReactionValues = Object.values(MessageReactionType);
+
+export interface IChatJobData {
+  message?: IMessageData;
+  receiverId?: string;
+  conversationId?: string;
+  reaction?: MessageReactionType;
+  messageId?: string;
+  senderId?: string;
+  type?: string;
+  userId?: string;
+  isNewConversation?: boolean;
+}
 
 export interface IMessageDocument extends Document {
   _id: mongoose.Types.ObjectId;
   conversationId: mongoose.Types.ObjectId;
   senderId: mongoose.Types.ObjectId;
   receiverId: mongoose.Types.ObjectId;
-  senderUsername: string;
-  senderAvatarColor: string;
-  senderProfilePicture: string;
-  receiverUsername: string;
-  receiverAvatarColor: string;
-  receiverProfilePicture: string;
-  body: string;
-  gifUrl: string;
+
+  // Content
+  body: string; // text message
+  type: MessageType;
+
+  // Media Details (Optional)
+  // Cloudinary URL
+  selectedImage?: string;
+  gifUrl?: string;
+  selectedVideo?: string;
+  selectedAudio?: string;
+
+  // Smart Features
   isRead: boolean;
-  selectedImage: string;
-  reaction: IReaction[];
+  readAt?: Date;
+
+  // Reactions (Like Facebook: ❤️, 😂, 👍)
+  reaction: Array<{
+    senderId: mongoose.Types.ObjectId;
+    type: MessageReactionType;
+  }>;
+
+  // Reply Logic (Context)
+  replyTo?: mongoose.Types.ObjectId;
+
+  // Deletion Logic
+  isDeleted: boolean; // Soft Delete (They are being removed for everyone)
+  deletedFor: Array<string>;
+
   createdAt: Date;
-  deleteForMe: boolean;
-  deleteForEveryone: boolean;
 }
 
 export interface IMessageData {
-  _id: string | mongoose.Types.ObjectId;
-  conversationId: mongoose.Types.ObjectId;
-  receiverId: string;
-  receiverUsername: string;
-  receiverAvatarColor: string;
-  receiverProfilePicture: string;
-  senderUsername: string;
-  senderId: string;
-  senderAvatarColor: string;
-  senderProfilePicture: string;
-  body: string;
-  isRead: boolean;
-  gifUrl: string;
-  selectedImage: string;
-  reaction: IReaction[];
-  createdAt: Date | string;
-  deleteForMe: boolean;
-  deleteForEveryone: boolean;
-}
-
-export interface IMessageNotification {
-  currentUser: AuthPayload;
-  message: string;
-  receiverName: string;
-  receiverId: string;
-  messageData: IMessageData;
-}
-
-export interface IChatUsers {
-  userOne: string;
-  userTwo: string;
-}
-
-export interface IChatList {
-  receiverId: string;
-  conversationId: string;
-}
-
-export interface ITyping {
-  sender: string;
-  receiver: string;
-}
-
-export interface IChatJobData {
-  senderId?: mongoose.Types.ObjectId | string;
+  _id: string | ObjectId;
+  conversationId: mongoose.Types.ObjectId | string; // It might be empty if it's the first message
+  senderId: mongoose.Types.ObjectId | string;
   receiverId?: mongoose.Types.ObjectId | string;
-  messageId?: mongoose.Types.ObjectId | string;
-  conversationId?: mongoose.Types.ObjectId | string;
-  senderName?: string;
-  reaction?: string;
-  type?: string;
+  body: string;
+  type: MessageType;
+  gifUrl?: string;
+  selectedImage?: string;
+  selectedVideo?: string;
+  selectedAudio?: string;
+  reaction: Array<{
+    senderId: mongoose.Types.ObjectId | string;
+    type: MessageReactionType;
+  }>;
+  deletedFor: Array<string>;
+  isDeleted: boolean;
+  replyTo?: string | object;
+  createdAt: Date | string;
 }
 
-export interface ISenderReceiver {
-  senderId: string;
-  receiverId: string;
-  senderName: string;
-  receiverName: string;
+export interface IMessageSocketData extends IMessageData {
+  senderData?: {
+    userId?: string;
+    username: string;
+    avatarColor: string;
+    profilePicture: string;
+  };
 }
-
-export interface IGetMessageFromCache {
-  index: number;
-  message: string;
-  receiver: IChatList;
-}
-
-export type TDeletedMessage = 'deleteForMe' | 'deleteForEveryone';
-export type TReactionMessage = 'add' | 'remove';

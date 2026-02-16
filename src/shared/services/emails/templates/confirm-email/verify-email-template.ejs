@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify Your Email</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #f4f7f6;
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #333333;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        .email-card {
+            background-color: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            text-align: center;
+            padding: 40px;
+            overflow: hidden;
+        }
+        .logo-img {
+            width: 70px;
+            height: 70px;
+            margin-bottom: 20px;
+            object-fit: contain;
+        }
+        h1 {
+            font-size: 24px;
+            color: #333333;
+            margin-bottom: 10px;
+        }
+        p {
+            font-size: 16px;
+            color: #666666;
+            line-height: 1.6;
+            margin-bottom: 20px;
+        }
+
+        /* تصميم صندوق الكود */
+        .otp-box {
+            background-color: #f0f4f8;
+            border: 2px dashed #007bff;
+            border-radius: 8px;
+            padding: 15px;
+            margin: 30px 0;
+            display: inline-block;
+            min-width: 200px;
+        }
+        .otp-code {
+            font-size: 32px;
+            font-weight: bold;
+            color: #007bff;
+            letter-spacing: 5px; /* مسافة بين الأرقام لسهولة القراءة */
+            font-family: 'Courier New', Courier, monospace; /* فونت يشبه الآلة الكاتبة للأرقام */
+        }
+
+        .expiry-text {
+            font-size: 13px;
+            color: #999999;
+            margin-top: 10px;
+        }
+        .btn {
+            display: inline-block;
+            background-color: #007bff;
+            color: #ffffff;
+            text-decoration: none;
+            padding: 12px 30px;
+            border-radius: 25px;
+            font-weight: bold;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        .footer {
+            margin-top: 30px;
+            font-size: 12px;
+            color: #aaaaaa;
+            text-align: center;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="email-card">
+            <img src="<%= image_url %>" alt="Security" class="logo-img">
+
+            <h1>Verify your email address</h1>
+
+            <p>Hi <%= username %>,<br>
+            Thanks for starting the new account creation process. We want to make sure it's really you.</p>
+
+            <p>Please enter the following verification code when prompted. If you don't want to create an account, you can ignore this message.</p>
+
+            <div class="otp-box">
+                <div class="otp-code"><%= otp %></div>
+            </div>
+
+            <div class="expiry-text">
+                This code is valid for <strong>5 minutes</strong>.
+            </div>
+
+            <a href="<%= action_url %>" class="btn">Go to Verification Page</a>
+        </div>
+
+        <div class="footer">
+            <p>&copy; <%= new Date().getFullYear() %> SocialApp. All rights reserved.</p>
+        </div>
+    </div>
+
+</body>
+</html>

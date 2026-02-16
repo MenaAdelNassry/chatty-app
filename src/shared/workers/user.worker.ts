@@ -53,6 +53,24 @@ class UserWorker {
       done(err as Error);
     }
   }
+
+  async updateUserStateInDB(job: Job, done: DoneCallback): Promise<void> {
+    try {
+      const { key: userId, authId, freezedBy, type, restoredBy } = job.data;
+
+      if(type === 'freeze') {
+        await userService.freezeAccount(userId, authId, freezedBy);
+      } else if(type === 'unfreeze') {
+        await userService.unfreezeUser(userId, restoredBy);
+      }
+
+      job.progress(100);
+      done(null, job.data)
+    } catch(err) {
+      log.error(err);
+      done(err as Error);
+    }
+  }
 }
 
 export const userWorker: UserWorker = new UserWorker();

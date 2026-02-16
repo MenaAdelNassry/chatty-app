@@ -17,8 +17,9 @@ export class SocketIOUserHandler {
   public listen(): void {
     this.io.on('connection', (socket: Socket) => {
       const { userId } = socket.data.user;
+
+      if(!userId) return;
       socket.join(`user:${userId}`);
-      console.log(`User ${userId} connected and joined room: user:${userId}`);
 
       socket.on('setup', (data: ILogin) => {
         this.addClient(data.userId, socket.id);

@@ -36,7 +36,7 @@ class BlockUser {
       blockedUserId
     });
 
-    res.status(HTTP_STATUS.OK).json({ message: 'User blocked' });
+    res.status(HTTP_STATUS.OK).json({ message: 'User blocked', userId: blockedUserId });
   };
 
   // -------------------------------------------------------------------------
@@ -65,7 +65,7 @@ class BlockUser {
       blockedUserId
     });
 
-    res.status(HTTP_STATUS.OK).json({ message: 'User unblocked' });
+    res.status(HTTP_STATUS.OK).json({ message: 'User unblocked', userId: blockedUserId });
   };
 
   // -------------------------------------------------------------------------
@@ -85,13 +85,14 @@ class BlockUser {
     const cachedList = await followerCache.getBlockedUsersFromCache(userId, start, end);
 
     // 2. Fallback to DB
-    const blockedUsers = cachedList.length
+    const blockedUsersObj = cachedList.blockedUsers.length
       ? cachedList
       : await blockUserService.getBlockedUsers(userId, skip, limit);
 
     res.status(HTTP_STATUS.OK).json({
       message: 'Blocked users',
-      blockedUsers
+      blockedUsers: blockedUsersObj.blockedUsers,
+      total: blockedUsersObj.total
     });
   };
 }

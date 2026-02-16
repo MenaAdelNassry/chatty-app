@@ -82,7 +82,7 @@ export class FollowerCache extends BaseCache {
   /**
    * ✅ PAGINATION IMPLEMENTED:
    */
-  public async getFollowersFromCache(key: string, start: number, end: number): Promise<IFollowerData[]> {
+  public async getFollowersFromCache(key: string, start: number, end: number, loggedUserId: string): Promise<IFollowerData[]> {
     try {
       if (!this.client.isOpen) {
         this.client.connect();
@@ -97,6 +97,8 @@ export class FollowerCache extends BaseCache {
         return [];
       }
 
+      const isMyFollowingList = key === `following:${loggedUserId}`;
+
       const followersPromises = followersIds.map(async (id) => {
         let user: IUserDocument | null = await userCache.getUserFromCache(id);
 
@@ -106,6 +108,16 @@ export class FollowerCache extends BaseCache {
         }
         if (!user) return null;
 
+        let isFollowing = false;
+        if (isMyFollowingList) {
+          // If it's my list, I am definitely following them.
+          isFollowing = true;
+        } else {
+          // Otherwise, we must check Redis to see if I follow this specific user.
+          // We check if 'loggedUserId' exists in the 'followers' list of 'id'.
+          isFollowing = await this.isUserFollowing(loggedUserId, id);
+        }
+
         const data: IFollowerData = {
           avatarColor: user.avatarColor!,
           followersCount: user.followersCount!,
@@ -113,9 +125,11 @@ export class FollowerCache extends BaseCache {
           profilePicture: user.profilePicture!,
           postsCount: user.postsCount!,
           username: user.username!,
+          bgImageId: user.bgImageId,
+          bgImageVersion: user.bgImageVersion,
           uId: user.uId!,
+          isFollowing,
           _id: new mongoose.Types.ObjectId(user._id),
-          userProfile: user
         };
 
         return data;
@@ -196,7 +210,7 @@ export class FollowerCache extends BaseCache {
     }
   }
 
-  public async getBlockedUsersFromCache(userId: string, start: number, end: number): Promise<IFollowerData[]> {
+  public async getBlockedUsersFromCache(userId: string, start: number, end: number): Promise<{ blockedUsers: IFollowerData[]; total: number }> {
     try {
       await this.checkConnection();
 
@@ -204,9 +218,11 @@ export class FollowerCache extends BaseCache {
       // 1. Get ALL blocked IDs (SMEMBERS returns an unsorted array)
       const response: string[] = await this.client.sMembers(key);
 
-      // If empty, return early
-      if (!response.length) {
-        return [];
+      const total = response.length;
+
+      // If empty, return consistent structure
+      if (!total) {
+        return { blockedUsers: [], total: 0 };
       }
 
       // 2. Manual Sort (Crucial for consistent pagination)
@@ -237,7 +253,7 @@ export class FollowerCache extends BaseCache {
       });
 
       const blockedUsers: IFollowerData[] = (await Promise.all(followersPromises)).filter((user) => user !== null) as IFollowerData[];
-      return blockedUsers;
+      return { blockedUsers, total };
     } catch (error) {
       log.error(error);
       throw new ServerError('Server error. Try again.');
@@ -254,6 +270,24 @@ export class FollowerCache extends BaseCache {
     } catch (error) {
       log.error(error);
       throw new ServerError('Server error. Try again.');
+    }
+  }
+
+  public async isUserFollowing(userId: string, followeeId: string): Promise<boolean> {
+    try {
+      if (!this.client.isOpen) {
+        await this.client.connect();
+      }
+
+      const key = `followers:${followeeId}`;
+
+      const score = await this.client.zScore(key, userId);
+
+      return score !== null;
+
+    } catch (error) {
+      log.error(error);
+      return false; // Fail-safe
     }
   }
 

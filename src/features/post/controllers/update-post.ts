@@ -94,15 +94,19 @@ class Update {
     }
 
     // D. Handle GIF Logic 👾
-    if (value.gifUrl !== undefined && value.gifUrl !== '') {
-      finalGifUrl = value.gifUrl;
+    if (value.gifUrl !== undefined) {
+      if(value.gifUrl !== '') {
+        finalGifUrl = value.gifUrl;
 
-      // Reset conflicting media
-      finalImgId = '';
-      finalImgVersion = '';
-      finalVideoId = '';
-      finalVideoVersion = '';
-      finalBgColor = '';
+        // Reset conflicting media
+        finalImgId = '';
+        finalImgVersion = '';
+        finalVideoId = '';
+        finalVideoVersion = '';
+        finalBgColor = '';
+      } else {
+        finalGifUrl = '';
+      }
     }
 
     // ---------------------------------------------------------------
@@ -137,9 +141,9 @@ class Update {
 
     const videoIdToDelete = originalPost.videoId && originalPost.videoId !== finalVideoId ? originalPost.videoId : undefined;
 
-    await this.updatePostAndNotify(postId, updatedData, imgIdToDelete, videoIdToDelete);
+    const updatedPost = await this.updatePostAndNotify(postId, updatedData, imgIdToDelete, videoIdToDelete);
 
-    res.status(HTTP_STATUS.OK).json({ message: 'Post updated successfully' });
+    res.status(HTTP_STATUS.OK).json({ post: updatedPost, message: 'Post updated successfully' });
   };
 
   // -------------------------------------------------------
@@ -150,7 +154,7 @@ class Update {
     updatedData: IPostDocument,
     imgIdToDelete?: string,
     videoIdToDelete?: string
-  ): Promise<void> => {
+  ): Promise<IPostDocument> => {
     // 1. Update in Cache
     const updatedPostFromCache = await postCache.updatePostInCache(postId, updatedData);
 
@@ -161,6 +165,7 @@ class Update {
 
     // 3. Update in DB (Queue)
     postQueue.addPostJob('updatePostInDB', { key: postId, value: updatedPostFromCache, imgId: imgIdToDelete, videoId: videoIdToDelete });
+    return updatedPostFromCache;
   };
 
   private checkPostOwnership = async (postId: string, currentUserId: string): Promise<IPostDocument> => {

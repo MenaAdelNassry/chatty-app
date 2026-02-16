@@ -1,5 +1,10 @@
-import mongoose, { Document } from 'mongoose';
+import { Document } from 'mongoose';
 import { ObjectId } from 'mongodb';
+
+export enum UserRole {
+  USER = 'user',
+  ADMIN = 'admin'
+}
 
 export interface IUserDocument extends Document {
   _id: string | ObjectId;
@@ -9,6 +14,7 @@ export interface IUserDocument extends Document {
   password?: string;
   avatarColor?: string;
   uId?: string;
+  emailVerified?: boolean;
   postsCount: number;
   work: string;
   school: string;
@@ -22,6 +28,15 @@ export interface IUserDocument extends Document {
   bgImageId: string;
   profilePicture: string;
   createdAt?: Date;
+  tokenVersion?: number;
+  isFollowing?: boolean;
+
+  role: UserRole;
+  freezedAt?: Date;
+  freezedBy?: string | ObjectId; // (User ID or Admin ID)
+
+  restoredAt?: Date;
+  restoredBy?: string | ObjectId;
 }
 
 export interface IResetPasswordParams {
@@ -58,6 +73,7 @@ export interface ISearchUser {
   username: string;
   following: boolean;
   avatarColor: string;
+  followersCount: number;
 }
 
 export interface ISocketData {
@@ -75,16 +91,24 @@ export interface IUserJobInfo {
 }
 
 export interface IUserJob {
-  keyOne?: string;
-  keyTwo?: string;
   key?: string;
   value?: string | INotificationSettings | IUserDocument;
+  authId?: string;
+  freezedBy?: string;
+  type?: string;
+  restoredBy?: string;
 }
 
 export interface IEmailJob {
   receiverEmail: string;
-  template: string;
   subject: string;
+  username: string;
+  ip?: string;
+  otp?: string;
+  TTL?: number;
+  message?: string;
+  header?: string;
+  type?: string;
 }
 
 export interface IAllUsers {

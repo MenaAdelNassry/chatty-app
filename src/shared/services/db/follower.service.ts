@@ -3,12 +3,16 @@ import { FollowerModel } from '@follower/models/follower.model';
 import { UserModel } from '@user/models/user.schema';
 import { ObjectId } from 'mongodb';
 import mongoose from 'mongoose';
-import { BadRequestError, ServerError } from '@global/helpers/error-handler';
+import { BadRequestError, NotFoundError, ServerError } from '@global/helpers/error-handler';
 import { BlockModel } from '@follower/models/block.model';
 import { FollowerCache } from '@service/redis/follower.cache';
 import { notificationQueue } from '@service/queues/notification.queue';
+import { IUserDocument } from '@user/interfaces/user.interface';
+import { UserCache } from '@service/redis/user.cache';
+import { userService } from './user.service';
 
 const followerCache: FollowerCache = new FollowerCache();
+const userCache: UserCache = new UserCache();
 
 class FollowerService {
   /**
@@ -29,6 +33,11 @@ class FollowerService {
     const isUserBlocking = await followerCache.isUserBlockedBy(followeeId, userId);
     if (isUserBlocked || isUserBlocking) {
       throw new BadRequestError('Action denied.');
+    }
+
+    const followeedUser: IUserDocument = (await userCache.getUserFromCache(followeeId)) || (await userService.getUserById(followeeId));
+    if (!followeedUser) {
+      throw new NotFoundError('User Not Found');
     }
 
     try {
@@ -57,7 +66,7 @@ class FollowerService {
         notificationType: 'follows',
         entityId: userId,
         createdItemId: followerDocumentId,
-        createdAt: new Date(),
+        createdAt: new Date()
       });
     } catch (error: any) {
       // 4. Idempotency Handler 🛡️
@@ -85,7 +94,7 @@ class FollowerService {
 
     // 1. Persistence Phase (MongoDB) 💾
     // Delete the relationship document
-    const deletePromise = FollowerModel.deleteOne({
+    const deletePromise = FollowerModel.findOneAndDelete({
       followeeId: followeeObjectId,
       followerId: followerObjectId
     });
@@ -96,29 +105,16 @@ class FollowerService {
       UserModel.updateOne({ _id: followerId }, { $inc: { followingCount: -1 } })
     ]);
 
-    await Promise.all([deletePromise, usersPromise]);
+    const [deletedFollowerDoc] = await Promise.all([deletePromise, usersPromise]);
 
     // 2. Caching Phase (Redis Update) ⚡
-    const response1 = followerCache.removeFollowerFromCache(
-      `following:${followerId}`,
-      followeeId,
-      followerId,
-      'followingCount'
-    );
-
-    const response2 = followerCache.removeFollowerFromCache(
-      `followers:${followeeId}`,
-      followerId,
-      followeeId,
-      'followersCount'
-    );
+    const response1 = followerCache.removeFollowerFromCache(`following:${followerId}`, followeeId, followerId, 'followingCount');
+    const response2 = followerCache.removeFollowerFromCache(`followers:${followeeId}`, followerId, followeeId, 'followersCount');
 
     await Promise.all([response1, response2]);
 
     notificationQueue.addNotificationJob('deleteNotification', {
-      userFrom: followerId,
-      userTo: followeeId,
-      notificationType: 'follows',
+      createdItemId: `${deletedFollowerDoc?._id}`
     });
   }
 
@@ -153,35 +149,72 @@ class FollowerService {
     const userMatchId = type === 'following' ? 'followerId' : 'followeeId';
     const userLookupId = type === 'following' ? 'followeeId' : 'followerId';
 
-    const result: IFollowerData[] = await FollowerModel.aggregate([
+    const pipeline: any[] = [
       { $match: { [userMatchId]: userId } },
-
-      // 🚀 PERFORMANCE BOOST:
-      // Sort, Skip, and Limit MUST happen BEFORE the Lookup.
-      // Otherwise, you join 1M users and then throw away 999,990 of them.
-      { $sort: { createdAt: -1 } }, // Sort by newest first (optional but recommended)
+      { $sort: { createdAt: -1 } },
       { $skip: skip },
       { $limit: limit },
-
       { $lookup: { from: 'User', localField: userLookupId, foreignField: '_id', as: userLookupId } },
       { $unwind: `$${userLookupId}` },
-
       { $lookup: { from: 'Auth', localField: `${userLookupId}.authId`, foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
+      { $unwind: '$authId' }
+    ];
 
-      {
-        $project: {
-          _id: `$${userLookupId}._id`,
-          uId: '$authId.uId',
-          username: '$authId.username',
-          avatarColor: '$authId.avatarColor',
-          profilePicture: `$${userLookupId}.profilePicture`,
-          postsCount: `$${userLookupId}.postsCount`,
-          followersCount: `$${userLookupId}.followersCount`,
-          followingCount: `$${userLookupId}.followingCount`
+    if (type === 'followers') {
+      pipeline.push(
+        {
+          $lookup: {
+            from: 'Follower',
+            let: { targetId: `$${userLookupId}._id` },
+            pipeline: [
+              {
+                $match: {
+                  $expr: {
+                    $and: [
+                      { $eq: ['$followerId', userId] },
+                      { $eq: ['$followeeId', '$$targetId'] }
+                    ]
+                  }
+                }
+              }
+            ],
+            as: 'isFollowingDoc'
+          }
+        },
+        {
+          $addFields: {
+            isFollowing: { $gt: [{ $size: '$isFollowingDoc' }, 0] }
+          }
         }
+      );
+    } else {
+      pipeline.push({
+        $addFields: {
+          isFollowing: true
+        }
+      });
+    }
+
+    // 3. Final Projection
+    pipeline.push({
+      $project: {
+        _id: `$${userLookupId}._id`,
+        uId: '$authId.uId',
+        username: '$authId.username',
+        avatarColor: '$authId.avatarColor',
+        profilePicture: `$${userLookupId}.profilePicture`,
+        postsCount: `$${userLookupId}.postsCount`,
+        followersCount: `$${userLookupId}.followersCount`,
+        followingCount: `$${userLookupId}.followingCount`,
+        bgImageId: `${userLookupId}.bgImageId`,
+        bgImageVersion: `${userLookupId}.bgImageVersion`,
+
+        // ✅ Add the calculated field
+        isFollowing: 1
       }
-    ]);
+    });
+
+    const result: IFollowerData[] = await FollowerModel.aggregate(pipeline);
 
     return result;
   }

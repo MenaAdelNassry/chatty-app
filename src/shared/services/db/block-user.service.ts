@@ -73,50 +73,64 @@ class BlockUserService {
     });
   }
 
-  public async getBlockedUsers(userId: string, skip: number, limit: number): Promise<IFollowerData[]> {
-    const blockedUsers: IFollowerData[] = await BlockModel.aggregate([
-      // 1. Match: Find docs where I am the blocker
+  public async getBlockedUsers(userId: string, skip: number, limit: number): Promise<{ blockedUsers: IFollowerData[]; total: number }> {
+    const result = await BlockModel.aggregate([
+      // 1. Match: Find documents where the current user is the blocker
       { $match: { blockerId: new mongoose.Types.ObjectId(userId) } },
 
-      // 2. Sort & Pagination
-      { $sort: { _id: -1 } },
-      { $skip: skip },
-      { $limit: limit },
-
-      // 3. Lookup: Get the BLOCKED user's details
-      { $lookup: { from: 'User', localField: 'blockedId', foreignField: '_id', as: 'blockedUser' } },
-      { $unwind: '$blockedUser' },
-
-      // 4. Lookup: Get Auth details
-      { $lookup: { from: 'Auth', localField: 'blockedUser.authId', foreignField: '_id', as: 'authId' } },
-      { $unwind: '$authId' },
-
-      // 5. Project: Select only needed fields
+      // 2. Facet: Run two pipelines in parallel (One for data, one for count)
       {
-        $project: {
-          _id: '$blockedUser._id',
-          username: '$authId.username',
-          uId: '$authId.uId',
-          avatarColor: '$authId.avatarColor',
-          profilePicture: '$blockedUser.profilePicture',
-          postsCount: '$blockedUser.postsCount',
-          followersCount: '$blockedUser.followersCount',
-          followingCount: '$blockedUser.followingCount'
+        $facet: {
+          // Pipeline A: Retrieve paginated data
+          blockedUsers: [
+            { $sort: { _id: -1 } },
+            { $skip: skip },
+            { $limit: limit },
+
+            // A.1. Lookup: Get the BLOCKED user's details from User collection
+            { $lookup: { from: 'User', localField: 'blockedId', foreignField: '_id', as: 'blockedUser' } },
+            { $unwind: '$blockedUser' },
+
+            // A.2. Lookup: Get Auth details (username, email, etc.) from Auth collection
+            { $lookup: { from: 'Auth', localField: 'blockedUser.authId', foreignField: '_id', as: 'authId' } },
+            { $unwind: '$authId' },
+
+            // A.3. Project: Format the output structure
+            {
+              $project: {
+                _id: '$blockedUser._id',
+                username: '$authId.username',
+                uId: '$authId.uId',
+                avatarColor: '$authId.avatarColor',
+                profilePicture: '$blockedUser.profilePicture',
+                postsCount: '$blockedUser.postsCount',
+                followersCount: '$blockedUser.followersCount',
+                followingCount: '$blockedUser.followingCount'
+              }
+            }
+          ],
+
+          // Pipeline B: Count total documents (ignoring pagination limits)
+          total: [{ $count: 'count' }]
         }
       }
     ]);
 
-    return blockedUsers;
+    // The aggregation returns an array with a single object containing the facet results
+    const finalResult = result[0];
+
+    return {
+      blockedUsers: finalResult.blockedUsers,
+      // Handle case where total array is empty (i.e., no blocked users found)
+      total: finalResult.total.length > 0 ? finalResult.total[0].count : 0
+    };
   }
 
   public async getExclusionBlockIds(userId: string): Promise<string[]> {
     const userObjectId = new mongoose.Types.ObjectId(userId);
 
     const blocks = await BlockModel.find({
-      $or: [
-        { blockerId: userObjectId },
-        { blockedId: userObjectId } 
-      ]
+      $or: [{ blockerId: userObjectId }, { blockedId: userObjectId }]
     }).select('blockerId blockedId');
 
     const blockIds: string[] = [];
@@ -124,8 +138,7 @@ class BlockUserService {
     blocks.forEach((doc) => {
       if (doc.blockerId.toString() === userId) {
         blockIds.push(doc.blockedId.toString());
-      }
-      else {
+      } else {
         blockIds.push(doc.blockerId.toString());
       }
     });

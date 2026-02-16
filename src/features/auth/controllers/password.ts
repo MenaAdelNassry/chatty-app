@@ -1,91 +1,118 @@
 import HTTP_STATUS from 'http-status-codes';
-import { emailSchema, passwordSchema } from "@auth/schemes/password";
-import { Request, Response } from "express";
-import { BadRequestError, joiRequestValidationError } from "@global/helpers/error-handler";
-import { authService } from "@service/db/auth.service";
-import crypto from "node:crypto";
-import { config } from "@root/config";
-import { emailQueue } from "@service/queues/email.queue";
-import { forgotPasswordTemplate } from "@service/emails/templates/forgot-password/forgot-password-template";
-import { resetPasswordTemplate } from '@service/emails/templates/reset-password/reset-password-template';
-import { IResetPasswordParams } from '@user/interfaces/user.interface';
-import moment from 'moment';
+import { emailSchema, passwordSchema, verifyOtpSchema } from '@auth/schemes/password';
+import { Request, Response } from 'express';
+import { BadRequestError, joiRequestValidationError } from '@global/helpers/error-handler';
+import { authService } from '@service/db/auth.service';
+import { config } from '@root/config';
+import { emailQueue } from '@service/queues/email.queue';
+import { UserCache } from '@service/redis/user.cache';
+import { Helpers } from '@global/helpers/helpers';
+import Jwt from 'jsonwebtoken';
+
+const userCache: UserCache = new UserCache();
+
+const TTL: number = 60 * 5; // 5m
 
 class Password {
-  public create = async (req: Request, res: Response) : Promise<void> => {
+  // Endpoint 1: Send OTP
+  public async sendOTP(req: Request, res: Response): Promise<void> {
     // Apply Validation
     const { value, error } = emailSchema.validate(req.body);
-    if(error?.details) {
+    if (error?.details) {
       throw new joiRequestValidationError(error.details[0].message.replace(/"/g, ''));
     }
 
-    // Check If email Existed
     const { email } = value;
     const existingUser = await authService.getAuthUserByEmail(email);
-
-    if(!existingUser) {
-      res.status(HTTP_STATUS.OK).json({ message: "Password reset email sent." });
+    if (!existingUser) {
+      // Security
+      res.status(HTTP_STATUS.OK).json({ message: 'OTP sent to your email.' });
       return;
     }
 
-    // Give user a new token
-    const randomBytes: Buffer = crypto.randomBytes(20);
-    const randomCharacters: string = randomBytes.toString("hex");
-    await authService.updatePasswordToken(`${existingUser._id}`, randomCharacters, Date.now() + 10 * 60 * 1000) // 10 minutes
+    // Generate 6 digits code
+    const otp = Helpers.getRandomOTP();
 
-    // Add email job to queue
-    const resetLink = `${config.CLIENT_URL}/reset-password?token=${randomCharacters}&userId=${existingUser._id}`;
-    const template = forgotPasswordTemplate.passwordResetTemplate(existingUser.username, resetLink);
+    // Save to Redis (5 mins, 0 attempts)
+    await userCache.saveOTP('forgot', email, otp, TTL);
 
-    emailQueue.addEmailJob("forgotPasswordEmail", {
+    // Send Email (Queue)
+    emailQueue.addEmailJob('forgotPasswordEmail', {
       receiverEmail: email,
-      template,
-      subject: "Reset your password"
+      subject: 'Reset your password',
+      username: existingUser.username,
+      otp,
+      TTL
     });
 
-    // Finally, The Response
-    res.status(HTTP_STATUS.OK).json({ message: "Password reset email sent." });
+    res.status(HTTP_STATUS.OK).json({ message: 'OTP sent to your email.' });
   }
 
-  public update = async (req: Request, res: Response): Promise<void> => {
-    // Apply Validation
-    const { value, error } = passwordSchema.validate(req.body);
-    if(error?.details) {
+  // Endpoint 2: Verify OTP
+  public async verifyOTP(req: Request, res: Response): Promise<void> {
+    // Validate Input
+    const { error } = verifyOtpSchema.validate(req.body);
+    if (error?.details) {
       throw new joiRequestValidationError(error.details[0].message.replace(/"/g, ''));
     }
 
-    // Confirmation from reset token
-    const { token, userId } = req.params;
-    const existingUser = await authService.getAuthUserByPasswordToken(token, userId);
+    const { email, otp } = req.body;
 
-    if(!existingUser) {
-      throw new BadRequestError('Invalid or expired password reset token');
+    // 1. Check Redis
+    const verificationResult = await userCache.verifyOTP('forgot', email, otp);
+
+    if (!verificationResult.valid) {
+      throw new BadRequestError(verificationResult.message);
     }
 
-    // Change password in DB
-    existingUser.password = value.password;
-    existingUser.passwordResetExpires = undefined;
-    existingUser.passwordResetToken = undefined;
-    existingUser.tokenVersion = (existingUser.tokenVersion ?? 0) + 1;
-    await existingUser.save();
+    const resetToken = Jwt.sign({ email, type: 'password_reset_access' }, config.JWT_TOKEN!, { expiresIn: TTL });
 
-    // Add email job confirmation
-    const ip = req.headers['x-forwarded-for']?.toString() || req.socket.remoteAddress;
-    const templateParams: IResetPasswordParams = {
-      email: existingUser.email,
-      username: existingUser.username,
-      ipaddress: ip!,
-      date: moment().format("DD/MM/YYYY HH:mm"),
-    }
-    const template = resetPasswordTemplate.passwordResetConfirmationTemplate(templateParams);
-    emailQueue.addEmailJob("forgotPasswordEmail", {
-      receiverEmail: existingUser.email,
-      subject: "Password reset confirmation",
-      template,
+    res.status(HTTP_STATUS.OK).json({
+      message: 'OTP verified.',
+      resetToken: resetToken
     });
+  }
 
-    // Finally, The Response
-    res.status(HTTP_STATUS.OK).json({ message: "Password successfully updated." });
+  // Endpoint 3: Reset Password
+  public async resetPassword(req: Request, res: Response): Promise<void> {
+    // Apply Validation
+    const { error } = passwordSchema.validate(req.body);
+    if (error?.details) {
+      throw new joiRequestValidationError(error.details[0].message.replace(/"/g, ''));
+    }
+
+    const { password, resetToken } = req.body;
+
+    try {
+      const decoded: any = Jwt.verify(resetToken, config.JWT_TOKEN!);
+
+      if (decoded.type !== 'password_reset_access') {
+        throw new BadRequestError('Invalid token type.');
+      }
+
+      const { email } = decoded;
+
+      const existingUser = await authService.getAuthUserByEmail(email);
+      if (!existingUser) throw new BadRequestError('User not found');
+
+      // Change password and tokenVersion (logout from all devices) in DB
+      existingUser.password = password;
+      existingUser.tokenVersion = (existingUser.tokenVersion ?? 0) + 1;
+      await existingUser.save();
+
+      // Add email job confirmation
+      const ip = req.headers['x-forwarded-for']?.toString() || req.socket.remoteAddress;
+      emailQueue.addEmailJob('confirmPasswordEmail', {
+        receiverEmail: existingUser.email,
+        subject: 'Password reset confirmation',
+        ip,
+        username: existingUser.username,
+      });
+
+      res.status(HTTP_STATUS.OK).json({ message: 'Password reset successfully.' });
+    } catch (error) {
+      throw new BadRequestError('Reset session expired. Please verify OTP again.');
+    }
   }
 }
 

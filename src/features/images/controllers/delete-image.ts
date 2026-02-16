@@ -18,7 +18,7 @@ class Delete {
     // 2. Handle Side Effects: Cache & Socket ⚡
     if (user) {
       // Full Cache Repair/Update
-      await userCache.saveUserToCache(`${user._id}`, `${user.uId}`, user);
+      await userCache.saveUserToCache(`${user._id}`, req.currentUser!.uId, user);
 
       // Real-time Update
       socketIOUserObject.to(`user:${userId}`).emit('update user', user);

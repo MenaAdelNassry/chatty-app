@@ -1,38 +1,36 @@
 import { Request, Response } from 'express';
 import HTTP_STATUS from 'http-status-codes';
-import { MessageCache } from '@service/redis/message.cache';
-import { IMessageData } from '@chat/interfaces/message.interface';
 import { socketIOChatObject } from '@socket/chat';
+import { messageReactionSchema } from '@chat/schemes/chat';
+import { joiRequestValidationError, NotFoundError } from '@global/helpers/error-handler';
+import { ChatCache } from '@service/redis/chat.cache';
 import { chatQueue } from '@service/queues/chat.queue';
-import { addMessageReactionSchema } from '@chat/schemes/chat';
-import { joiRequestValidationError } from '@global/helpers/error-handler';
 
-const messageCache: MessageCache = new MessageCache();
+const chatCache: ChatCache = new ChatCache();
 
-class Message {
+class MessageReaction {
   public async reaction(req: Request, res: Response): Promise<void> {
-    const { value, error } = addMessageReactionSchema.validate(req.body);
-    if(error?.details) {
-      throw new joiRequestValidationError(error?.details[0].message);
+    const { error } = messageReactionSchema.validate(req.body);
+    if (error?.details) {
+      throw new joiRequestValidationError(error.details[0].message.replace(/"/g, ''));
     }
 
-    const { conversationId, messageId, reaction, type } = value;
-    const updatedMessage: IMessageData = await messageCache.updateMessageReaction(
-      messageId,
-      conversationId,
-      type,
-      req.currentUser!.username,
-      reaction
-    );
-    socketIOChatObject.emit('message reaction', updatedMessage);
-    chatQueue.addChatJob('updateMessageReactionToDB', {
-      messageId,
-      senderName: req.currentUser!.username,
-      reaction,
-      type
-    });
-    res.status(HTTP_STATUS.OK).json({ message: 'Message reaction updated' });
+    const { conversationId, messageId, reaction, socketId } = req.body;
+    const senderId = req.currentUser!.userId;
+
+    // 1. Update Cache (Don't await it to block the socket if you want speed, or await for consistency)
+    await chatCache.updateMessageReaction(conversationId, messageId, reaction, senderId);
+
+    // 2. Queue for DB
+    chatQueue.addChatJob('updateMessageReactionToDB', { messageId, senderId, reaction });
+
+    // 3. Socket Emission ⚡
+    const socketData = { messageId, conversationId, senderId, reaction };
+
+    socketIOChatObject.to(conversationId).except(socketId).emit('message reaction', socketData);
+
+    res.status(HTTP_STATUS.OK).json({ message: 'Reaction updated' });
   }
 }
 
-export const message: Message = new Message();
+export const messageReaction: MessageReaction = new MessageReaction();

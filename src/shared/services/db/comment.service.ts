@@ -55,7 +55,7 @@ class CommentService {
       post: postDocument.post,
       imgId: postDocument.imgId,
       imgVersion: postDocument.imgVersion,
-      gifUrl: postDocument.gifUrl
+      gifUrl: postDocument.gifUrl,
     });
   }
 
@@ -65,7 +65,16 @@ class CommentService {
   }
 
   public async deleteCommentFromDB(commentId: string, postId: string): Promise<void> {
-    await Promise.all([CommentsModel.deleteOne({ _id: commentId }), PostModel.updateOne({ _id: postId }, { $inc: { commentsCount: -1 } })]);
+    // Handle In DB
+    const [_, __] = await Promise.all([
+      CommentsModel.deleteOne({ _id: commentId }),
+      PostModel.findOneAndUpdate({ _id: postId }, { $inc: { commentsCount: -1 } }),
+    ]);
+
+    // Handle Notification Model And Real-time
+    notificationQueue.addNotificationJob('deleteNotification', {
+      createdItemId: commentId,
+    });
   }
 }
 

@@ -39,8 +39,8 @@ class NotificationService {
     await NotificationModel.deleteOne({ _id: notificationId });
   }
 
-  public async deleteNotificationByIDs(userFrom: string, userTo: string, notificationType: string): Promise<void> {
-    await NotificationModel.deleteOne({ userTo, userFrom, notificationType });
+  public async deleteNotificationByIDs(userFrom: string, userTo: string, notificationType: string): Promise<INotificationDocument | null> {
+    return await NotificationModel.findOneAndDelete({ userTo, userFrom, notificationType });
   }
 
   public async deleteNotificationsBetweenUsers(user1: string, user2: string): Promise<void> {
@@ -52,15 +52,50 @@ class NotificationService {
     });
   }
 
+  public async markAllNotificationsAsRead(userId: string): Promise<void> {
+    await NotificationModel.updateMany({ userTo: userId, read: false }, { $set: { read: true } });
+  }
+
   // ---------------------------------------------------------
   // 🔒 Private Methods (Helpers)
   // ---------------------------------------------------------
   private aggregateProject(): any[] {
     return [
+      // 1. Existing Lookups (User & Auth)
       { $lookup: { from: 'User', localField: 'userFrom', foreignField: '_id', as: 'userFrom' } },
       { $unwind: '$userFrom' },
       { $lookup: { from: 'Auth', localField: 'userFrom.authId', foreignField: '_id', as: 'authId' } },
       { $unwind: '$authId' },
+
+      // 🔥 2. Conditional Lookup
+      {
+        $lookup: {
+          from: 'Follower',
+          let: {
+            senderId: '$userFrom._id',
+            receiverId: '$userTo',
+            type: '$notificationType'
+          },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $and: [
+                    // 🛑 Guard Clause
+                    { $eq: ['$$type', 'follows'] },
+
+                    { $eq: ['$followerId', '$$receiverId'] },
+                    { $eq: ['$followeeId', '$$senderId'] }
+                  ]
+                }
+              }
+            }
+          ],
+          as: 'isFollowingDoc'
+        }
+      },
+
+      // 3. Project
       {
         $project: {
           _id: 1,
@@ -78,10 +113,18 @@ class NotificationService {
           read: 1,
           userTo: 1,
           userFrom: {
+            _id: '$userFrom._id',
             profilePicture: '$userFrom.profilePicture',
             username: '$authId.username',
-            avatarColor: '$authId.avatarColor',
-            uId: '$authId.uId'
+            avatarColor: '$authId.avatarColor'
+          },
+
+          isFollowing: {
+            $cond: {
+              if: { $gt: [{ $size: '$isFollowingDoc' }, 0] },
+              then: true,
+              else: false
+            }
           }
         }
       }

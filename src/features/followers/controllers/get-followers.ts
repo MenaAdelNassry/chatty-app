@@ -17,6 +17,7 @@ class Get {
   // -------------------------------------------------------------------------
   public following = async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params;
+    const myId = req.currentUser?.userId;
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 12;
     const skip = (page - 1) * limit;
@@ -33,7 +34,7 @@ class Get {
     const start = skip;
     const end = page * limit - 1;
 
-    const cachedFollowing: IFollowerData[] = await followerCache.getFollowersFromCache(`following:${userId}`, start, end);
+    const cachedFollowing: IFollowerData[] = await followerCache.getFollowersFromCache(`following:${userId}`, start, end, myId!);
 
     // 2. Fallback Logic
     const user = await userCache.getUserFromCache(userId);
@@ -58,6 +59,7 @@ class Get {
   // -------------------------------------------------------------------------
   public followers = async (req: Request, res: Response): Promise<void> => {
     const { userId } = req.params;
+    const myId = req.currentUser?.userId;
     const page = Number(req.query.page) || 1;
     const limit = Number(req.query.limit) || 12;
     const skip = (page - 1) * limit;
@@ -76,7 +78,7 @@ class Get {
     // 2. Try Cache ⚡
     const start = skip;
     const end = page * limit - 1;
-    const cachedFollowers: IFollowerData[] = await followerCache.getFollowersFromCache(`followers:${userId}`, start, end);
+    const cachedFollowers: IFollowerData[] = await followerCache.getFollowersFromCache(`followers:${userId}`, start, end, myId!);
 
     // 3. Smart DB Fallback 🧠
     let list: IFollowerData[] = cachedFollowers;

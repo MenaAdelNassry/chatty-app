@@ -20,9 +20,9 @@ class ReactionService {
     }
 
     // 2. Database Operations (Parallel)
-    const [updatedPost, _] = await Promise.all([
+    const [updatedPost, reactionDoc] = await Promise.all([
       PostModel.findOneAndUpdate({ _id: new mongoose.Types.ObjectId(postId) }, reactionUpdateOp, { new: true }),
-      ReactionModel.updateOne(
+      ReactionModel.findOneAndUpdate(
         { postId, userId: userFrom },
         {
           $set: {
@@ -38,36 +38,44 @@ class ReactionService {
             createdAt: new Date()
           }
         },
-        { upsert: true }
+        { upsert: true, new: true, runValidators: true }
       )
     ]);
 
     // 3. Notifications
     if (updatedPost && String(updatedPost.userId) !== userFrom) {
-      notificationQueue.addNotificationJob('insertNotification', {
-        userFrom,
-        userTo,
-        message: `${reactionObject?.username} reacted on your post.`,
-        notificationType: 'reactions',
-        entityId: postId,
-        createdItemId: `${reactionObject!._id}`,
-        createdAt: new Date(),
-        post: updatedPost.post,
-        imgId: updatedPost.imgId,
-        imgVersion: updatedPost.imgVersion,
-        gifUrl: updatedPost.gifUrl,
-        reaction: type
-      });
+      if (previousReaction) {
+        notificationQueue.addNotificationJob('updateNotification', { createdItemId: `${reactionDoc._id}`, reaction: type });
+      } else {
+        notificationQueue.addNotificationJob('insertNotification', {
+          userFrom,
+          userTo,
+          message: `${reactionObject?.username} reacted on your post.`,
+          notificationType: 'reactions',
+          entityId: postId,
+          createdItemId: `${reactionObject!._id}`,
+          createdAt: new Date(),
+          post: updatedPost.post,
+          imgId: updatedPost.imgId,
+          imgVersion: updatedPost.imgVersion,
+          gifUrl: updatedPost.gifUrl,
+          reaction: type,
+        });
+      }
     }
   }
 
   public async removeReactionDataFromDB(reactionData: IReactionJob): Promise<void> {
     const { postId, userFrom, previousReaction } = reactionData;
 
-    await Promise.all([
-      ReactionModel.deleteOne({ postId, userId: userFrom }),
+    const [deletedReactionDoc] = await Promise.all([
+      ReactionModel.findOneAndDelete({ postId, userId: userFrom }),
       PostModel.updateOne({ _id: postId }, { $inc: { [`reactions.${previousReaction}`]: -1 } })
     ]);
+
+    notificationQueue.addNotificationJob('deleteNotification', {
+      createdItemId: `${deletedReactionDoc?._id}`
+    });
   }
 
   public async getPostReactions(query: IQueryReaction, sort: Record<string, 1 | -1>): Promise<[IReactionDocument[], number]> {

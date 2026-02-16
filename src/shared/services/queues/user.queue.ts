@@ -9,6 +9,7 @@ class UserQueue extends BaseQueue {
     this.processJob('updateUserInfoInDB', 5, userWorker.updateUserInfoInDB);
     this.processJob('updateSocialLinksInDB', 5, userWorker.updateSocialLinksInDB);
     this.processJob('updateNotificationSettingsInDB', 5, userWorker.updateNotificationSettingsInDB);
+    this.processJob('updateUserState', 5, userWorker.updateUserStateInDB);
   }
 
   public addUserJob(name: string, data: IUserJob): void {

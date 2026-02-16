@@ -3,6 +3,8 @@ import { authMiddleware } from '@global/helpers/authMiddleware';
 import { get } from '@user/controllers/get-profile';
 import { search } from '@user/controllers/search-user';
 import { update } from '@user/controllers/update-settings';
+import { deactivate } from '@user/controllers/deactive-user';
+import { activate } from '@user/controllers/activate-user';
 
 class UserRoutes {
   private router: Router;
@@ -28,6 +30,15 @@ class UserRoutes {
 
     // 4. Get Search
     this.router.get('/user/search/:query/:page', authMiddleware.checkAuthentication, search.user);
+
+    // 5. User Self-Deactivation
+    this.router.post('/user/deactivate', authMiddleware.checkAuthentication, deactivate.deactivateSelf);
+
+    // 6. Admin Block User
+    this.router.put('/admin/user/:userId/freeze', authMiddleware.checkAuthentication, deactivate.adminFreezeUser);
+
+    // 7. Admin Activate User
+    this.router.put('/admin/user/:userId/restore', authMiddleware.checkAuthentication, activate.adminUnfreezeUser);
 
     return this.router;
   }
