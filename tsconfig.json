@@ -17,6 +17,7 @@
       "emitDecoratorMetadata": true,
       "forceConsistentCasingInFileNames": true,
       "allowSyntheticDefaultImports": true,
+      "skipLibCheck": true,
       "pretty": true,
       "resolveJsonModule": true,
       "plugins": [
@@ -48,6 +49,8 @@
       "jest.config.ts",
       "coverage",
       "node_modules",
+      "src/**/*.test.ts",
+      "src/mocks"
     ]
 }
 
