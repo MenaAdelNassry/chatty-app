@@ -24,7 +24,7 @@ import jwt from 'jsonwebtoken';
 import passport from 'passport';
 import { SocialStrategy } from '@auth/strategies/google.strategy';
 
-const SERVER_PORT = 5000;
+const SERVER_PORT = process.env.PORT || 5000;
 const log: Logger = config.createLogger('setupServer');
 
 export class ChattyServer {
@@ -43,13 +43,16 @@ export class ChattyServer {
   }
 
   private securityMiddleware(app: Application): void {
+    app.set('trust proxy', 1);
+
     /* -------- Cookie Session --------  */
     app.use(
       cookieSession({
         name: 'session',
         keys: [config.SECRET_KEY_ONE!, config.SECRET_KEY_TWO!],
         // maxAge: 1000 * 60 * 60 * 24 * 7, // 7 Days
-        secure: config.NODE_ENV !== 'development'
+        secure: config.NODE_ENV !== 'development',
+        sameSite: 'none'
       })
     );
 
