@@ -109,7 +109,11 @@ export class ChattyServer {
   private async startServer(app: Application): Promise<void> {
     try {
       const httpServer: http.Server = new http.Server(app);
+
+      log.info("Attempting to connect to Redis...");
       const socketIO: Server = await this.createSocketIO(httpServer);
+      log.info("SocketIO created successfully");
+      
       this.startHttpServer(httpServer);
       this.socketIOConnections(socketIO);
     } catch (err) {
