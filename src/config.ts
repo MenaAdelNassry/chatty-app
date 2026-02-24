@@ -42,7 +42,7 @@ class Config {
         this.SENDER_EMAIL_PASSWORD = process.env.SENDER_EMAIL_PASSWORD || "";
         this.SENDGRID_API_KEY = process.env.SENDGRID_API_KEY || "";
         this.SENDGRID_SENDER = process.env.SENDGRID_SENDER || "";
-        this.EC2_URL = process.env.EC2_URL || "";
+        this.EC2_URL = process.env.EC2_URL || "any placeholder";
         this.GOOGLE_CONSOLE_CLOUD_CLIENT_ID = process.env.GOOGLE_CONSOLE_CLOUD_CLIENT_ID || "";
         this.GOOGLE_CONSOLE_CLOUD_CALLBACK_URL = process.env.GOOGLE_CONSOLE_CLOUD_CALLBACK_URL || "";
         this.GOOGLE_CONSOLE_CLOUD_CLIENT_SECRET = process.env.GOOGLE_CONSOLE_CLOUD_CLIENT_SECRET || "";
