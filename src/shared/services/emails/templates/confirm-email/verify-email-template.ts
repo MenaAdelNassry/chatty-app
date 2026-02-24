@@ -1,3 +1,4 @@
+import { config } from '@root/config';
 import ejs from 'ejs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -12,7 +13,7 @@ class VerifyEmailTemplate {
       username,
       otp,
       image_url,
-      action_url: 'http://localhost:3000/verify-email' 
+      action_url: `${config.CLIENT_URL}/verify-email`
     });
   }
 }

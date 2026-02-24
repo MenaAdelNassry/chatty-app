@@ -1,3 +1,4 @@
+import { config } from '@root/config';
 import ejs from 'ejs';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +21,7 @@ class DeactivateTemplate {
       image_url,
       type,
       daysToKeep,
-      app_url: 'http://localhost:3000', // frontend url
+      app_url: config.CLIENT_URL, // frontend url
       support_url: 'mailto:support@socialapp.com'
     });
   }

@@ -113,7 +113,7 @@ export class ChattyServer {
       log.info("Attempting to connect to Redis...");
       const socketIO: Server = await this.createSocketIO(httpServer);
       log.info("SocketIO created successfully");
-      
+
       this.startHttpServer(httpServer);
       this.socketIOConnections(socketIO);
     } catch (err) {
