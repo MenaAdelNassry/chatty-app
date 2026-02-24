@@ -147,8 +147,10 @@ export class ChattyServer {
 
   private startHttpServer(httpServer: http.Server): void {
     log.info(`Server has started with process ${process.pid}`);
-    httpServer.listen(SERVER_PORT, () => {
-      log.info(`Server is running on localhost:${SERVER_PORT}`);
+    const hostName = config.NODE_ENV === 'development' ? 'localhost': '0.0.0.0';
+
+    httpServer.listen(Number(SERVER_PORT), hostName, () => {
+      log.info(`Server is running on ${hostName}:${SERVER_PORT}`);
     });
   }
 
