@@ -8,7 +8,7 @@
     "lint:fix": "eslint 'src/**/*.ts' --fix",
     "prettier:check": "prettier --check 'src/**/*.{ts,json}'",
     "prettier:fix": "prettier --write 'src/**/*.{ts,json}'",
-    "build": "tsc -p . && tscpaths -p tsconfig.json -s ./src -o ./build && copyfiles -u 1 \"src/**/*.ejs\" build",
+    "build": "tsc -p . && tscpaths -p tsconfig.json -s ./src -o ./build && copyfiles -u 1 src/**/*.ejs build",
     "start": "node build/app.js",
     "test": "jest --coverage=true -w=1 --forceExit --detectOpenHandles --watchAll=false"
   },
