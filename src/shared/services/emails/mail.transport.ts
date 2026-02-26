@@ -13,9 +13,14 @@ interface IMailOptions {
 }
 
 const log: Logger = config.createLogger("mailOptions");
+console.log("fuckeeeeeeeeeeeen Error: ", config.SENDGRID_API_KEY)
 sendGridMail.setApiKey(config.SENDGRID_API_KEY!);
 
 class MailTransport {
+  constructor() {
+    console.log(`📧 Debug: Sending from ${config.SENDER_EMAIL}`);
+  }
+
   public async sendEmail(receiverEmail: string, subject: string, body: string): Promise<void> {
     if(config.NODE_ENV === "development" || config.NODE_ENV === "test") {
       await this.developmentEmailSender(receiverEmail, subject, body);
