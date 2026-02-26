@@ -54,7 +54,7 @@ class MailTransport {
 
   // private async productionEmailSender(receiverEmail: string, subject: string, body: string): Promise<void> {
   //   const mailOptions: IMailOptions = {
-  //     from: `Chatty App <${config.SENDER_EMAIL}>`,
+  //     from: `Chatty App <${config.SENDGRID_SENDER}>`,
   //     to: receiverEmail,
   //     subject,
   //     html: body,
@@ -70,6 +70,7 @@ class MailTransport {
   // }
 
   private async productionEmailSender(receiverEmail: string, subject: string, body: string): Promise<void> {
+    console.log('BREVO KEY:', config.BREVO_PASSWORD);
     try {
       await axios.post(
         'https://api.brevo.com/v3/smtp/email',
