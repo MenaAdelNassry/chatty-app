@@ -54,7 +54,7 @@
     "@sendgrid/mail": "^8.1.6",
     "@socket.io/redis-adapter": "^8.3.0",
     "@types/ms": "^2.1.0",
-    "axios": "^1.13.2",
+    "axios": "^1.13.5",
     "bcryptjs": "^3.0.2",
     "bull": "^4.16.5",
     "bunyan": "^1.8.15",

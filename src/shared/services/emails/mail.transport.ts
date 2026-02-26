@@ -1,9 +1,10 @@
 import nodemailer from 'nodemailer';
 import Mail from 'nodemailer/lib/mailer';
-import sendGridMail from '@sendgrid/mail';
+// import sendGridMail from '@sendgrid/mail';
 import { config } from '@root/config';
 import Logger from 'bunyan';
 import { BadRequestError } from '@global/helpers/error-handler';
+import axios, { AxiosError } from 'axios';
 
 interface IMailOptions {
   from: string;
@@ -13,7 +14,7 @@ interface IMailOptions {
 }
 
 const log: Logger = config.createLogger('mailOptions');
-sendGridMail.setApiKey(config.SENDGRID_API_KEY!);
+// sendGridMail.setApiKey(config.SENDGRID_API_KEY!);
 
 class MailTransport {
   public async sendEmail(receiverEmail: string, subject: string, body: string): Promise<void> {
@@ -69,32 +70,38 @@ class MailTransport {
   // }
 
   private async productionEmailSender(receiverEmail: string, subject: string, body: string): Promise<void> {
-    const transporter = nodemailer.createTransport({
-      host: 'smtp-relay.brevo.com',
-      port: 465,
-      secure: true,
-      auth: {
-        user: config.BREVO_USER,
-        pass: config.BREVO_PASSWORD
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-
-    const mailOptions = {
-      from: `Chatty App <${config.BREVO_USER}>`,
-      to: receiverEmail,
-      subject: subject,
-      html: body
-    };
-
     try {
-      await transporter.sendMail(mailOptions);
-      log.info('Email sent successfully via Brevo SMTP.');
-    } catch (err) {
-      log.error('Brevo Error: ', err);
-      throw new BadRequestError('Error sending email via Brevo');
+      await axios.post(
+        'https://api.brevo.com/v3/smtp/email',
+        {
+          sender: {
+            name: 'Chatty App',
+            email: config.BREVO_USER
+          },
+          to: [
+            {
+              email: receiverEmail
+            }
+          ],
+          subject: subject,
+          htmlContent: body
+        },
+        {
+          headers: {
+            'api-key': config.BREVO_PASSWORD,
+            'Content-Type': 'application/json'
+          },
+          timeout: 10000 // 10 seconds safety timeout
+        }
+      );
+
+      log.info('Email sent successfully via Brevo API.');
+    } catch (error) {
+      const err = error as AxiosError<any>;
+
+      log.error('Brevo API Error:', err.response?.data || err.message);
+
+      throw new BadRequestError(err.response?.data?.message || 'Error sending email via Brevo API');
     }
   }
 }
