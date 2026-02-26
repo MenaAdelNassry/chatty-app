@@ -24,6 +24,8 @@ class Config {
     public GOOGLE_CONSOLE_CLOUD_CALLBACK_URL: string | undefined;
     public GOOGLE_CONSOLE_CLOUD_CLIENT_SECRET: string | undefined;
     public API_URL: string | undefined;
+    public BREVO_PASSWORD: string | undefined;
+    public BREVO_USER: string | undefined;
 
     private readonly DEFAULT_DATABASE_URL = "mongodb://127.0.0.1:27017/chatty-app";
 
@@ -47,6 +49,8 @@ class Config {
         this.GOOGLE_CONSOLE_CLOUD_CALLBACK_URL = process.env.GOOGLE_CONSOLE_CLOUD_CALLBACK_URL || "";
         this.GOOGLE_CONSOLE_CLOUD_CLIENT_SECRET = process.env.GOOGLE_CONSOLE_CLOUD_CLIENT_SECRET || "";
         this.API_URL = process.env.API_URL || "";
+        this.BREVO_PASSWORD = process.env.BREVO_PASSWORD || "";
+        this.BREVO_USER = process.env.BREVO_USER || "";
     }
 
     public validateConfig(): void {
