@@ -71,15 +71,19 @@ class MailTransport {
   private async productionEmailSender(receiverEmail: string, subject: string, body: string): Promise<void> {
     const transporter = nodemailer.createTransport({
       host: 'smtp-relay.brevo.com',
-      port: 587,
+      port: 465,
+      secure: true,
       auth: {
         user: config.BREVO_USER,
         pass: config.BREVO_PASSWORD
+      },
+      tls: {
+        rejectUnauthorized: false
       }
     });
 
     const mailOptions = {
-      from: `Chatty App <${config.SENDER_EMAIL}>`,
+      from: `Chatty App <${config.BREVO_USER}>`,
       to: receiverEmail,
       subject: subject,
       html: body
