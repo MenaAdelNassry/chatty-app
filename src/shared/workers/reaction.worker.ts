@@ -1,4 +1,3 @@
-// @ts-ignore
 import Logger from "bunyan";
 import { config } from "@root/config";
 import { DoneCallback, Job } from "bull";

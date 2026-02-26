@@ -1,6 +1,5 @@
 import { DoneCallback, Job } from "bull";
 import { config } from "@root/config";
-// @ts-ignore
 import Logger from "bunyan";
 import { userService } from "@service/db/user.service";
 
